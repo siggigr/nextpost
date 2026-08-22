@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">Nextpost</string>
+    <string name="location_rationale_title">Turn on location</string>
+    <string name="location_rationale_body">Nextpost needs your precise location to find posts and detect when you arrive. The game can\'t work without it.</string>
+    <string name="location_grant_access">Grant location access</string>
+    <string name="location_approximate_title">Precise location needed</string>
+    <string name="location_approximate_body">Approximate location isn\'t enough for Nextpost. Turn on precise location for Nextpost in system settings.</string>
+    <string name="location_open_settings">Open settings</string>
+    <string name="location_permanently_denied_title">Location is turned off</string>
+    <string name="location_permanently_denied_body">Location is turned off for Nextpost. Enable it in settings to play.</string>
 </resources>
