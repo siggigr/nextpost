@@ -1,54 +1,65 @@
 package `is`.siggi.nextpost.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+
+// Flagg is reserved for exactly two things: the current target and the primary action.
+// Basalt is body text and cairn stones. Jokull is surfaces. Mosi is secondary text and
+// dividers. Aska is borders, disabled states, and unstacked cairn stones. See section 14.3.
+private val LightColorScheme = lightColorScheme(
+    primary = Flagg,
+    onPrimary = Jokull,
+    primaryContainer = Aska,
+    onPrimaryContainer = Basalt,
+    secondary = Mosi,
+    onSecondary = Jokull,
+    secondaryContainer = Aska,
+    onSecondaryContainer = Basalt,
+    tertiary = Mosi,
+    onTertiary = Jokull,
+    background = Jokull,
+    onBackground = Basalt,
+    surface = Jokull,
+    onSurface = Basalt,
+    surfaceVariant = Aska,
+    onSurfaceVariant = Mosi,
+    outline = Aska,
+    outlineVariant = Aska,
+)
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = Flagg,
+    onPrimary = Jokull,
+    primaryContainer = Basalt,
+    onPrimaryContainer = Jokull,
+    secondary = Mosi,
+    onSecondary = Basalt,
+    secondaryContainer = Basalt,
+    onSecondaryContainer = Jokull,
+    tertiary = Mosi,
+    onTertiary = Basalt,
+    background = Basalt,
+    onBackground = Jokull,
+    surface = Basalt,
+    onSurface = Jokull,
+    surfaceVariant = Basalt,
+    onSurfaceVariant = Aska,
+    outline = Mosi,
+    outlineVariant = Mosi,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-)
-
+/**
+ * Light is the default per section 14.1: outdoor use in daylight makes dark UI less
+ * readable, even at full brightness. Dark mode is offered, never defaulted to.
+ */
 @Composable
 fun NextpostTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     MaterialTheme(
         colorScheme = colorScheme,
