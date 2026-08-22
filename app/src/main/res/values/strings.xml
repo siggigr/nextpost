@@ -8,4 +8,59 @@
     <string name="location_open_settings">Open settings</string>
     <string name="location_permanently_denied_title">Location is turned off</string>
     <string name="location_permanently_denied_body">Location is turned off for Nextpost. Enable it in settings to play.</string>
+
+    <!-- Home (section 5.1) -->
+    <string name="home_welcome">Welcome to %1$s</string>
+    <string name="home_create_game">Create new game</string>
+    <string name="home_play">Play Nextpost</string>
+
+    <!-- Create game (section 5.2) -->
+    <string name="create_game_title">New game</string>
+    <plurals name="create_post_count">
+        <item quantity="one">%1$d post</item>
+        <item quantity="other">%1$d posts</item>
+    </plurals>
+    <string name="create_nav_back">Back</string>
+    <string name="create_add">Add</string>
+    <string name="create_edit">Edit</string>
+    <string name="create_delete">Delete</string>
+    <string name="create_create_game">Create game</string>
+    <string name="create_validation_too_few_posts">Add at least 2 posts to create a game.</string>
+    <string name="create_validation_insufficient_clues">Post %1$d needs at least 3 clues (has %2$d).</string>
+    <string name="create_select_post_hint">Tap a post on the map to edit or delete it.</string>
+    <string name="create_pin_content_description">Post location, centred under the map</string>
+    <string name="create_post_marker_content_description">Post %1$d</string>
+    <string name="create_set_start_location">Set start location</string>
+    <string name="create_set_post_location">Set location for post %1$d</string>
+    <string name="create_add_clue">Add clue</string>
+    <string name="create_save">Save</string>
+    <string name="create_cancel">Cancel</string>
+    <string name="create_location_not_set_hint">Pan the map, then set the location to place this post.</string>
+    <string name="create_zoom_in_hint">Zoom in to at least building level before setting the location. A post placed while zoomed out can miss the 25 m arrival radius.</string>
+    <string name="create_editor_title_add">Add post</string>
+    <string name="create_editor_title_edit">Edit post %1$d</string>
+    <string name="create_discard_dialog_title">Discard this post?</string>
+    <plurals name="create_discard_dialog_body">
+        <item quantity="one">This post has %1$d clue that hasn\'t been saved.</item>
+        <item quantity="other">This post has %1$d clues that haven\'t been saved.</item>
+    </plurals>
+    <string name="create_discard_confirm">Discard</string>
+    <string name="create_discard_keep_editing">Keep editing</string>
+
+    <!-- Clue editor (section 5.2) -->
+    <string name="clue_editor_title">Clues for post %1$d</string>
+    <string name="clue_editor_guidance">The first clue is the vaguest, the last is a dead giveaway.</string>
+    <string name="clue_editor_clue_label">Clue %1$d</string>
+    <string name="clue_editor_add">Add clue</string>
+    <string name="clue_editor_delete_content_description">Delete clue %1$d</string>
+    <string name="clue_editor_move_up_content_description">Move clue %1$d up</string>
+    <string name="clue_editor_move_down_content_description">Move clue %1$d down</string>
+    <string name="clue_editor_status_met">Meets the 3-clue minimum.</string>
+    <plurals name="clue_editor_status_below">
+        <item quantity="one">%1$d more clue needed to meet the 3-clue minimum.</item>
+        <item quantity="other">%1$d more clues needed to meet the 3-clue minimum.</item>
+    </plurals>
+    <string name="clue_editor_blank_clue">Clue %1$d is empty.</string>
+    <string name="clue_editor_char_counter">%1$d/%2$d</string>
+    <string name="clue_editor_done">Done</string>
 </resources>

@@ -176,16 +176,45 @@ Two primary buttons: **Create new game** and **Play Nextpost**. Secondary link: 
 Map screen with the creator's current location centred. Three buttons below the map: **Add**, **Edit**, **Delete**. A list or numbered markers show posts already placed.
 
 **Add post**
-1. Creator taps **Add**. A draggable marker appears at the centre of the map at the creator's current location.
-2. The screen enters *post edit mode*. Available actions: **Set** (confirm the location), **Add clue**, **Save** (lock the post at the chosen location), **Cancel** (discard).
-3. The creator drags the marker to the intended spot, or pans the map under a fixed centre pin. Prefer the fixed centre pin, it is more accurate on a small screen than dragging with a fingertip.
-4. For every post except index 0, **Add clue** opens the clue editor.
-5. **Save** persists the post to the draft game.
+
+The post edit flow has four actions and each does something the others do not. The distinction between **Set** and **Save** is the one most easily lost: **Set** changes how the map behaves, **Save** commits the post.
+
+1. Creator taps **Add**. A pin appears at the centre of the map. At this stage the map centre *is* the post location: panning the map moves the post. There is no dragging of the marker itself, since panning under a fixed centre pin is considerably more accurate on a small screen than positioning with a fingertip that covers the target.
+2. The creator pans until the pin sits on the intended spot, then taps **Set**. The pin detaches from the centre and locks to that coordinate. From here the map pans freely underneath without moving the post.
+3. **Add clue** opens the clue editor. This is deliberately available after **Set** rather than before, because a creator writing "behind the bench facing the water" needs to look around the area, and looking around must not drag the post along.
+4. **Save** commits the post and its clues to the draft game and exits post edit mode.
+5. **Cancel** discards the post and any clues written for it. If clues have been written, confirm before discarding rather than doing it silently.
+
+Post index 0 takes no clues, so **Add clue** is hidden rather than disabled for the first post.
+
+**Button labels.** Per 14.5 a button says what happens, so **Set** alone is too thin. The verb stays constant and the object varies, so it reads as one action rather than two different buttons:
+
+| Post | Label |
+|---|---|
+| Index 0 | **Set start location** |
+| All others | **Set post location**, or **Set location for post N** if the screen does not otherwise show which post is being placed |
+
+Note the label names the *location*, not the post. The button fixes a coordinate; it does not create or number anything. Avoid "next post" in creator-facing copy entirely: that phrase belongs to the player, who is hunting for a post they cannot see, and reusing it here muddies a term doing real work elsewhere.
+
+**Placement accuracy.** The arrival radius is 25 m, so a post misplaced by 40 m sends players to the wrong bench. At low zoom a fingertip covers far more ground than 25 m, and nothing currently tells the creator that. Two supports:
+
+- **Draw the 25 m radius as a scaled circle around the pin**, so it shrinks and grows with zoom. This makes the precision requirement visible rather than something the creator must imagine, and the same overlay is reusable on the play screen at M5.
+- **Require a minimum zoom before Set is available**, around level 17 (roughly building level), or warn if the creator sets a location while zoomed far out.
+
+Pinch-to-zoom gestures stay enabled throughout. Only the +/- control buttons are disabled, per 14.1, because they render bottom-right where the primary action lives.
+
+**Layout constraint:** **Cancel** must not sit adjacent to **Save**, for the same reason **Delete** does not. A mis-tap that discards a post with three written clues has no undo. See section 14.1.
 
 **Clue editor**
 - Ordered list of clues with add, edit, reorder, delete.
 - Guidance text at the top: first clue is the vaguest, last is a dead giveaway.
-- Validation: minimum 3 clues per scored post. **Create game** stays disabled until every scored post satisfies this.
+- **A visible way to finish.** A top-bar back arrow is not sufficient: it sits outside the thumb zone and creators do not look there, so the screen reads as a dead end once the minimum is met. The bottom third carries the exit.
+- **Primary action swaps with progress.** Below the minimum, **Add clue** is primary and **Done** is hidden or disabled, so the layout itself signals what remains. Once the minimum is met they swap: **Done** becomes the primary full-width action and **Add clue** demotes to secondary. The "meets the minimum" confirmation belongs beside **Done**, not floating as a status line with nothing to act on.
+- **Empty clues are prevented, not warned about.** **Add clue** is disabled while the last field is empty or whitespace-only. **Done** is disabled if any clue is empty, naming which one. Whitespace is trimmed before validating and before saving.
+- **The minimum counts only non-empty clues.** Three fields where one is blank does not satisfy it and must not show the confirmation. Otherwise a creator can tap Add clue three times, write nothing, and publish an unsolvable post.
+- **Cap clue text at 200 characters,** with a counter appearing around 150. Clues are read on a phone outdoors at a glance, so a pasted paragraph is unusable in practice.
+
+**Where this validation lives.** The 3-clue minimum and the empty-clue rule are the same rule and must not be two validations that can disagree. Put it in `domain/` alongside `ScoreCalculator`, as a pure function over a list of clue strings, because M4 needs it again at publish time and M2's ViewModel is the wrong owner for logic the publish flow also depends on.
 
 **Publish**
 - When all posts are placed, the creator taps **Create game**.
@@ -327,6 +356,21 @@ Given a player enters a valid code but leaves the name field empty or types only
 
 **AC-12 Name is remembered**
 Given a player joined a previous game as "Siggi", when they open the join screen again, then the name field is prefilled with "Siggi" and remains editable.
+
+**AC-13 Set detaches the pin from the map centre**
+Given a creator has tapped Add and the pin is tracking the map centre, when they tap Set and then pan the map, then the pin stays at the coordinate it held when Set was tapped and does not follow the centre.
+
+**AC-14 Cancel protects written work**
+Given a creator has added two clues to a post that has not been saved, when they tap Cancel, then a confirmation appears before anything is discarded.
+
+**AC-15 Blank clues do not satisfy the minimum**
+Given a post has three clue fields and one contains only whitespace, when the creator views the clue editor, then the minimum is reported as unmet, Done is disabled, and the empty clue is named.
+
+**AC-16 The clue editor has a visible exit**
+Given a post has three valid clues, when the creator views the clue editor, then a Done button is the primary action in the bottom third and Add clue is secondary.
+
+**AC-17 The arrival radius is visible during placement**
+Given a creator is placing a post, when the pin is shown, then a 25 m radius circle is drawn to scale around it and resizes with zoom.
 
 **AC-8 Unknown code**
 Given a player enters a code that does not exist, when they submit, then an error explains the code was not found and the input is preserved.
