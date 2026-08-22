@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "106079274062",
+    "project_id": "nextpost-is",
+    "storage_bucket": "nextpost-is.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:106079274062:android:f62d004844e23595cc6f1f",
+        "android_client_info": {
+          "package_name": "is.siggi.nextpost"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDABzeQVCkEaKgBvAVQBgbtWQNKqJUKWN8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
