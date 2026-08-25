@@ -148,6 +148,18 @@ object ScoreCalculator {
 
 Display scores rounded to one decimal. Keep full precision in storage.
 
+### Why clues per post are capped at 10
+
+The 10-point floor is a `max()`, so a score can never rise by opening another clue. But it can go **flat**: once the floor is reached, further clues cost nothing and a player already at 10 may as well open everything. The flat zone is always the final 10% of clues, because the floor is hit when `extraCluesOpened >= 0.9 * (totalClues - 1)`.
+
+At small counts this is harmless — with 3, 5 or 8 clues only the last one is affected. At 14 clues the last two are free; at 30, the last three.
+
+**The fix is a cap of 10 clues per post, not a change to the formula.** Rescaling to remove the flat zone would break the worked examples above: the 5-clue case gives exactly 75 because the penalty is exactly 100/4, and those numbers come from the original description. With a maximum of 10 clues the penalty is 11.1 and the floor is reached only on the very last clue, so the flat zone disappears.
+
+There is an independent reason for the cap. A post with 14 clues is a walkthrough, not a hint progression, and 5.2 requires the first clue to be the vaguest and the last a dead giveaway. Ten is already generous for that arc.
+
+`MAX_CLUES_PER_POST = 10` belongs in `domain/` beside the minimum, enforced by the same validator, with **Add clue** disabled at the cap and a message explaining why.
+
 ### Required unit tests
 
 | Total clues | Extra opened | Expected | Source |
@@ -162,6 +174,8 @@ Display scores rounded to one decimal. Keep full precision in storage.
 | 8 | 7 | 10.0 | Explicit |
 | 3 | 99 | 10.0 | Floor never breached |
 
+**Plus a property test:** for every valid clue count from 3 to 10, the score must **strictly decrease** with each additional clue opened, until the floor is reached, and the floor must be reached only on the final clue. This is what the cap exists to guarantee, and it is the test that would have caught the flat zone.
+
 The start post scores nothing. Maximum possible game score is `scoredPostCount * 100`.
 
 ---
@@ -171,9 +185,27 @@ The start post scores nothing. Maximum possible game score is `scoredPostCount *
 ### 5.1 Home
 Two primary buttons: **Create new game** and **Play Nextpost**. Secondary link: **My games** (list of games this user created, showing code, title, post count, status).
 
+**Deleting a game from My games.** Each row carries a delete control, available for drafts and published games alike. Three things must happen together, and none of them is automatic:
+
+- **Subcollections are not deleted with the parent document.** Firestore leaves `posts`, their nested `clues`, and any `sessions` orphaned when the game document goes. They stay in storage, invisible and permanent. Deletion must walk the tree explicitly, deleting clues, then posts, then sessions, then the game.
+- **The `gameCodes/{CODE}` entry must go in the same operation** for a published game, or a dead code stays resolvable and a player joining it lands on a game that no longer exists.
+- **Confirm before deleting,** naming the game in the dialog. This is irreversible, the control sits in a list row next to a tap-to-open action, and a mis-tap destroys a route someone walked to build. See 14.1 on destructive controls.
+
+Players mid-game on a deleted published game get the "game deleted" error already listed under the join screen in 5.3. Accepted for v1: the creator owns the game and may withdraw it.
+
+Security rules must permit the creator to delete their own games in either status. The M3 draft-only rule is too narrow for this.
+
 ### 5.2 Create game
 
+**Name the game first.** Selecting **Create new game** opens a title prompt before the map. The title is **mandatory**, 1 to 60 characters, trimmed. Section 3 carries a `title` field on the game document and My games lists by it, so without this step the field is never populated and a creator with three drafts cannot tell them apart. Naming also gives lazy draft creation a natural trigger.
+
+**Duplicate titles are warned about, not blocked.** Titles are not identifiers; the game code is. Two creators may both have a game called "Fjöruferð", and one creator may legitimately build the same route twice for different groups. But a duplicate among *this creator's own* games defeats the purpose of having titles, so warn on match and let them proceed anyway. Check only against the creator's own games, which are already loaded for My games, and never against a global collection. My games should also show the created date on each row, so rows stay distinguishable whatever the creator names them.
+
 Map screen with the creator's current location centred. Three buttons below the map: **Add**, **Edit**, **Delete**. A list or numbered markers show posts already placed.
+
+**Camera positioning.** Centre on the creator's current location only for the first post of an empty game. From then on the camera stays where the creator left it. Re-centring on the device for every **Add** is wrong whenever the creator is planning rather than walking: placing post 4 near post 3 is the common case, and a creator preparing a countryside route from home would otherwise have to pan a hundred kilometres for every post. Offer a recentre-on-me control for when they do want it, but never force it.
+
+**Opening an existing game** follows the same principle: centre on the last post added, not on the device. A creator resuming a route built elsewhere should land where they left off. Fall back to the device location only when the game has no posts yet.
 
 **Add post**
 
@@ -194,6 +226,12 @@ Post index 0 takes no clues, so **Add clue** is hidden rather than disabled for 
 | Index 0 | **Set start location** |
 | All others | **Set post location**, or **Set location for post N** if the screen does not otherwise show which post is being placed |
 
+**The label changes once the location is set,** because the state has changed and 14.5 requires the button to say what happens: **Reposition start** and **Reposition post N**. Tapping it must be the exact inverse of **Set**, re-attaching the pin to the map centre so panning moves the post again. It is not a separate mode. Avoid wording that implies the tap begins a drag.
+
+**Reposition centres the camera on the post first.** If the creator has panned away since setting the location, attaching the pin to the current centre would teleport the post to wherever the map happens to sit. So **Reposition** animates the camera to the post's existing coordinate, then attaches the pin. The post does not move until the creator pans deliberately.
+
+No centre crosshair is drawn. The pin marks the map centre whenever it is unset, which is the only state in which the aim point matters, so a separate crosshair would be redundant.
+
 Note the label names the *location*, not the post. The button fixes a coordinate; it does not create or number anything. Avoid "next post" in creator-facing copy entirely: that phrase belongs to the player, who is hunting for a post they cannot see, and reusing it here muddies a term doing real work elsewhere.
 
 **Placement accuracy.** The arrival radius is 25 m, so a post misplaced by 40 m sends players to the wrong bench. At low zoom a fingertip covers far more ground than 25 m, and nothing currently tells the creator that. Two supports:
@@ -210,6 +248,9 @@ Pinch-to-zoom gestures stay enabled throughout. Only the +/- control buttons are
 - Guidance text at the top: first clue is the vaguest, last is a dead giveaway.
 - **A visible way to finish.** A top-bar back arrow is not sufficient: it sits outside the thumb zone and creators do not look there, so the screen reads as a dead end once the minimum is met. The bottom third carries the exit.
 - **Primary action swaps with progress.** Below the minimum, **Add clue** is primary and **Done** is hidden or disabled, so the layout itself signals what remains. Once the minimum is met they swap: **Done** becomes the primary full-width action and **Add clue** demotes to secondary. The "meets the minimum" confirmation belongs beside **Done**, not floating as a status line with nothing to act on.
+- **The editor opens with one empty field already present, but not focused.** Having the field there saves a step; focusing it in code costs a character on Samsung keyboards, per 14.1. The creator taps it. Note the interaction with validation below: an untouched initial field is not an error state, so do not show "Clue 1 is empty" to a creator who has only just arrived. Validation messages appear once the creator has begun entering clues, not on arrival.
+- **Add clue is the only way to append.** No IME chaining. Clue fields stay single-line and a newly appended field scrolls into view above the keyboard, but focus stays where the creator puts it.
+- **The entry point is labelled "Add clues", plural.** The screen is a list, the minimum is three, and the button opens an editor for all of them. Inside the editor, the button that appends one more field stays singular: **Add clue**.
 - **Empty clues are prevented, not warned about.** **Add clue** is disabled while the last field is empty or whitespace-only. **Done** is disabled if any clue is empty, naming which one. Whitespace is trimmed before validating and before saving.
 - **The minimum counts only non-empty clues.** Three fields where one is blank does not satisfy it and must not show the confirmation. Otherwise a creator can tap Add clue three times, write nothing, and publish an unsolvable post.
 - **Cap clue text at 200 characters,** with a counter appearing around 150. Clues are read on a phone outdoors at a glance, so a pasted paragraph is unusable in practice.
@@ -288,6 +329,18 @@ Firestore rules should express these intentions:
 
 Rules can enforce the clue gating with a `get()` on the session document. Write the rules alongside the feature, not at the end.
 
+### Widening the rules at M4 — the mistake to avoid
+
+M3's rules are creator-scoped and draft-only. M4 must widen them so a player can read a game they did not create. **The widening must be scoped to holding a session, not to the game being published.**
+
+The tempting rule is "any authenticated user may read a game where `status == 'published'`". It works, it passes every test you would think to write, and it quietly makes every game in the database readable by every user of the app. The code stops being access control and becomes decoration.
+
+The correct condition is that the requester holds a session document on that specific game. A player must join before they can read, and joining requires the code.
+
+Test the negative case explicitly: sign in as a second user, do not join, and confirm that reading a published game by its document id is denied. A rule is only as good as the case you have proved it refuses, and the Rules Playground in the Firebase console does this without writing any app code.
+
+Nextpost has no browse, no search and no public listing by design. If a rule would allow enumerating games, it is wrong regardless of which feature asked for it.
+
 ### Known limitation (accept for v1, note it)
 
 To run the arrival check on the device, the client must know the target coordinates, which means a determined player could read them. Rules gating post reads on `currentPostIndex` stops casual snooping of the *whole* route but not the immediate next post. Closing this properly needs a Cloud Function that takes the player's position and answers arrive/not-arrive server-side. That is a good v2 item; it is not worth the complexity for a friendly game between people who know each other.
@@ -317,6 +370,8 @@ Build in this order. Each milestone should end in a state that runs on a device.
 | M6 | Scoring | `ScoreCalculator` wired in with all unit tests green, running total, completion screen with breakdown |
 | M7 | Hardening | Security rules deployed and manually tested from a second account, error states, empty states, GPS-accuracy edge cases |
 | M8 | Polish | Icelandic strings, app icon, share sheet for the code, screen-on during play |
+
+**Test on a physical Samsung device, not only the emulator.** The emulator is a Pixel running Gboard; this app's market is predominantly Samsung. One input bug has already been traced to that difference alone, after five rounds of fixes aimed at code that was never wrong. Anything involving text entry, keyboards, or GPS behaviour needs confirming on real hardware before a milestone is called done.
 
 ---
 
@@ -372,6 +427,24 @@ Given a post has three valid clues, when the creator views the clue editor, then
 **AC-17 The arrival radius is visible during placement**
 Given a creator is placing a post, when the pin is shown, then a 25 m radius circle is drawn to scale around it and resizes with zoom.
 
+**AC-18 A game must be named**
+Given a creator selects Create new game, when the title prompt appears, then the map is not reachable until a non-empty title is entered, and that title appears in My games.
+
+**AC-19 The camera holds position between posts**
+Given a creator has set post 1 and pans the map two kilometres away, when they tap Add for post 2, then the camera stays where they left it and does not return to the device location.
+
+**AC-20 Reposition re-attaches the pin**
+Given a post location has been set, when the creator taps Reposition and pans the map, then the pin follows the map centre again and the centre crosshair is visible.
+
+**AC-21 Deletion leaves nothing behind**
+Given a published game with three posts and their clues, when the creator deletes it and confirms, then the game document, all posts, all clues, all sessions and the gameCodes entry are gone, verified in the Firestore console.
+
+**AC-22 Reposition does not teleport the post**
+Given a post location has been set and the creator has panned two kilometres away, when they tap Reposition, then the camera returns to the post's coordinate and the post has not moved.
+
+**AC-23 A published game is not readable without joining**
+Given user B has never joined user A's published game, when user B attempts to read that game document, its posts or its clues directly by id, then every read is denied. Verified in the Rules Playground, not only through the app.
+
 **AC-8 Unknown code**
 Given a player enters a code that does not exist, when they submit, then an error explains the code was not found and the input is preserved.
 
@@ -412,6 +485,9 @@ Nextpost is used outdoors, while walking, in daylight, one-handed, often in cold
 - **Tap targets.** 48 dp minimum everywhere, 56 dp for any primary action on the play screen. Cold fingers and gloves are imprecise.
 - **Separate the costly action from the frequent one.** **Show next clue** permanently costs points and **I think I'm here** will be tapped repeatedly. They must not be adjacent. Put the arrival check as the wide primary button at the bottom and the clue reveal inside the clue sheet, and require a confirmation on the clue reveal that names the cost: "Open clue 3 of 5? This post drops to 50 points."
 - **Separate destructive from constructive.** In the post editor, **Delete** never sits next to **Save**.
+- **The keyboard must never cover the primary action.** Any screen with a text field applies IME padding so the action button rises above the keyboard rather than sitting behind it. Keyboard-first screens are laid out top-aligned, not bottom-aligned: a field placed low on the screen is a field the keyboard will hide the moment it is tapped.
+- **Text input carries the right IME configuration.** Sentence capitalisation on every field a person writes prose into, so the first letter is capitalised without reaching for shift.
+- **Do not set focus programmatically.** The creator taps the field they want. Programmatic focus was tried and abandoned: on Samsung's keyboard, setting focus in code restarts the input connection and drops the character being composed, so the first character typed into a newly focused field is lost. The committed text survives in the ViewModel while the field's own buffer resets, which makes the symptom look like a state bug and is not one. It does not reproduce on Gboard, so an emulator will show it working. Samsung is the dominant Android brand in this app's market, so "works on Pixel" is not a passing grade. Scrolling a newly added field into view is fine and unrelated; it is focus specifically that must stay manual.
 - **Glanceability over density.** A player looks at the screen for two seconds at a time. The current clue and the distance-to-target are the only things that need to be readable at arm's length in sun.
 - **Light theme is the default, not dark.** Dark UI is less readable in direct sunlight even at full brightness. Follow the hiking-app convention: light surfaces, near-black text, and a single saturated accent. Offer dark mode, but do not make it default, and remember the map style must switch with it.
 - **Screen-on and battery.** Keep the screen awake during play; that makes the high-contrast light theme a battery cost worth accepting for a game measured in tens of minutes.

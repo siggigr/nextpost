@@ -62,4 +62,5 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation(libs.maps.compose)
     implementation(libs.play.services.location)
+    implementation(libs.androidx.datastore.preferences)
 }

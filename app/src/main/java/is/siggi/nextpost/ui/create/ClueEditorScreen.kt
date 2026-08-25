@@ -6,9 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -28,10 +31,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.domain.ClueValidator
@@ -51,6 +61,10 @@ private const val CLUE_LENGTH_COUNTER_THRESHOLD = 150
  * both: Add clue waits for the previous row to have text, and Done names the first blank
  * row rather than letting one through. Operates on the clue list of the shared
  * CreateGameViewModel's current PostEditor mode.
+ *
+ * No field is ever focused programmatically, including the seeded first one: a Samsung
+ * keyboard was found to drop in-flight keystrokes when programmatic focus restarted its
+ * input connection mid-composition. The creator taps whichever field they want to type into.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,6 +80,13 @@ fun ClueEditorScreen(
         LaunchedEffect(Unit) { onDone() }
         return
     }
+
+    // Same rule the publish flow uses (ClueValidator, domain/): a blank clue (whitespace-only
+    // counts as blank) never counts towards the minimum.
+    val validation = ClueValidator.validate(editor.clues.map { it.text })
+    val minimumMet = validation.isValid
+
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Scaffold(
         modifier = modifier,
@@ -83,11 +104,13 @@ fun ClueEditorScreen(
             )
         }
     ) { innerPadding ->
+        // imePadding so Add clue/Done rise above the keyboard instead of sitting behind it.
         Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
                 .padding(horizontal = Spacing.md)
+                .imePadding()
         ) {
             Text(
                 text = stringResource(R.string.clue_editor_guidance),
@@ -96,26 +119,47 @@ fun ClueEditorScreen(
                 modifier = Modifier.padding(vertical = Spacing.sm)
             )
 
-            LazyColumn(
-                modifier = Modifier.weight(1f),
+            // A plain Column, not a LazyColumn: the clue list is capped well under ten rows
+            // (ClueValidator), so there's nothing to gain from lazy composition.
+            val scrollState = rememberScrollState()
+            var previousClueCount by remember { mutableIntStateOf(editor.clues.size) }
+
+            // A newly appended field can land below the fold; scroll it into view above the
+            // keyboard so the creator can see what they just added without a manual scroll.
+            // Keyed on count increasing specifically, not on the count itself, so a delete or
+            // reorder never triggers an unwanted scroll.
+            LaunchedEffect(editor.clues.size) {
+                if (editor.clues.size > previousClueCount) {
+                    scrollState.animateScrollTo(scrollState.maxValue)
+                }
+                previousClueCount = editor.clues.size
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm)
             ) {
-                items(editor.clues, key = { it.index }) { clue ->
-                    ClueRow(
-                        clue = clue,
-                        clueCount = editor.clues.size,
-                        onTextChange = { text -> viewModel.updateClueText(clue.index, text) },
-                        onMoveUp = { viewModel.moveClue(clue.index, clue.index - 1) },
-                        onMoveDown = { viewModel.moveClue(clue.index, clue.index + 1) },
-                        onDelete = { viewModel.deleteClue(clue.index) }
-                    )
+                editor.clues.forEach { clue ->
+                    // Keyed on the clue's stable id, not its position: index is reassigned on
+                    // every reorder/delete (see Clue.id's doc), and keying on it would make
+                    // Compose tear down and recreate every row a reorder shifts, not just the
+                    // one that moved.
+                    key(clue.id) {
+                        ClueRow(
+                            clue = clue,
+                            clueCount = editor.clues.size,
+                            onTextChange = { text -> viewModel.updateClueText(clue.index, text) },
+                            onImeDone = { keyboardController?.hide() },
+                            onMoveUp = { viewModel.moveClue(clue.index, clue.index - 1) },
+                            onMoveDown = { viewModel.moveClue(clue.index, clue.index + 1) },
+                            onDelete = { viewModel.deleteClue(clue.index) }
+                        )
+                    }
                 }
             }
 
-            // Same rule the publish flow uses (ClueValidator, domain/): a blank clue
-            // (whitespace-only counts as blank) never counts towards the minimum.
-            val validation = ClueValidator.validate(editor.clues.map { it.text })
-            val minimumMet = validation.isValid
             // Enough rows have been attempted that Done is worth showing, even though a
             // blank among them still blocks it.
             val doneIsRelevant = editor.clues.size >= ClueValidator.MIN_CLUES_PER_SCORED_POST
@@ -169,11 +213,16 @@ fun ClueEditorScreen(
                         Text(stringResource(R.string.clue_editor_done))
                     }
                 } else {
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // Suppressed until the creator has actually typed something: the seeded
+                    // blank first field is not an error just for having just arrived. See
+                    // section 5.2.
+                    if (editor.clueEntryStarted) {
+                        Text(
+                            text = statusText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Button(
                         onClick = { viewModel.addClue("") },
                         enabled = canAddClue,
@@ -208,6 +257,7 @@ private fun ClueRow(
     clue: Clue,
     clueCount: Int,
     onTextChange: (String) -> Unit,
+    onImeDone: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onDelete: () -> Unit,
@@ -222,6 +272,22 @@ private fun ClueRow(
             value = clue.text,
             onValueChange = { text -> onTextChange(text.take(MAX_CLUE_LENGTH)) },
             label = { Text(stringResource(R.string.clue_editor_clue_label, clue.index + 1)) },
+            // Single-line so an IME action key is available at all instead of a newline; the
+            // 200-char cap still applies, it just scrolls horizontally within the field rather
+            // than wrapping past the cap.
+            singleLine = true,
+            // autoCorrect off: kept from the investigation into a Samsung-keyboard
+            // dropped-keystroke bug, whose actual fix was removing all programmatic focus
+            // (see this file's top doc). Clues are short phrases; losing autocorrect on them
+            // costs nothing, so there's no reason to turn it back on.
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                autoCorrectEnabled = false,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { onImeDone() }
+            ),
             supportingText = if (clue.text.length > CLUE_LENGTH_COUNTER_THRESHOLD) {
                 {
                     Text(

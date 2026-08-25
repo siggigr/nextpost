@@ -9,21 +9,34 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Satellite
+import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -35,18 +48,22 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapType
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.rememberCameraPositionState
@@ -54,11 +71,13 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.repository.LocationRepository
+import `is`.siggi.nextpost.data.repository.MapTypePreferenceRepository
 import `is`.siggi.nextpost.ui.common.ArrivalRadiusCircle
 import `is`.siggi.nextpost.ui.common.LocationAccessGate
 import `is`.siggi.nextpost.ui.common.rememberLocationAccessState
 import `is`.siggi.nextpost.ui.theme.Spacing
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /** Fallback centre before the first GPS fix lands, matching the M0/M1 default. */
 private val REYKJAVIK = LatLng(64.1466, -21.9426)
@@ -79,6 +98,7 @@ private const val MIN_ZOOM_FOR_SET = 17f
 @Composable
 fun CreateGameScreen(
     viewModel: CreateGameViewModel,
+    initialGameId: String?,
     onNavigateUp: () -> Unit,
     onAddClue: () -> Unit,
     modifier: Modifier = Modifier
@@ -87,6 +107,14 @@ fun CreateGameScreen(
     val locationAccessState = rememberLocationAccessState()
     val editor = uiState.mode as? CreateScreenMode.PostEditor
     var showDiscardConfirm by remember { mutableStateOf(false) }
+
+    // Resuming a draft opened from My games: same screen, just pre-loaded. Local-only new
+    // drafts (initialGameId null) skip this entirely.
+    LaunchedEffect(initialGameId) {
+        if (initialGameId != null) {
+            viewModel.loadDraft(initialGameId)
+        }
+    }
 
     // Cancel lives in the top bar rather than the bottom control cluster, specifically so
     // it can never end up adjacent to Save. See the section 5.2 layout constraint.
@@ -104,7 +132,9 @@ fun CreateGameScreen(
             TopAppBar(
                 title = {
                     val title = when {
-                        editor == null -> stringResource(R.string.create_game_title)
+                        // Also covers Naming: titleInput mirrors the field live, so the bar
+                        // previews the name as it's typed rather than showing a fixed label.
+                        editor == null -> uiState.titleInput.ifBlank { stringResource(R.string.create_game_title) }
                         editor.editingIndex == null -> stringResource(R.string.create_editor_title_add)
                         else -> stringResource(R.string.create_editor_title_edit, editor.editingIndex)
                     }
@@ -128,7 +158,7 @@ fun CreateGameScreen(
                     }
                 },
                 actions = {
-                    if (editor == null) {
+                    if (editor == null && uiState.mode !is CreateScreenMode.Naming) {
                         Text(
                             text = pluralStringResource(
                                 R.plurals.create_post_count,
@@ -149,11 +179,32 @@ fun CreateGameScreen(
                 .fillMaxSize()
         ) {
             LocationAccessGate(state = locationAccessState) {
-                CreateGameContent(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    onAddClue = onAddClue
-                )
+                when {
+                    uiState.isLoadingDraft ->
+                        // Resuming a draft reads several documents (game, posts, clues); a
+                        // blank Overview screen for that moment would read as "my posts are
+                        // gone".
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+
+                    // Naming gates everything past it: the map isn't reachable until the
+                    // game has a title. See section 5.2 and AC-18.
+                    uiState.mode is CreateScreenMode.Naming -> GameNamingContent(
+                        titleInput = uiState.titleInput,
+                        isCreating = uiState.isCreatingDraft,
+                        isDuplicateTitle = uiState.isDuplicateTitle,
+                        onTitleChange = viewModel::updateTitleInput,
+                        onConfirm = viewModel::confirmTitle,
+                        onAppear = viewModel::loadExistingTitlesForDuplicateCheck
+                    )
+
+                    else -> CreateGameContent(
+                        uiState = uiState,
+                        viewModel = viewModel,
+                        onAddClue = onAddClue
+                    )
+                }
             }
         }
 
@@ -188,6 +239,83 @@ fun CreateGameScreen(
     }
 }
 
+/**
+ * Section 5.2: naming is mandatory and comes before the map, and is the natural trigger for
+ * lazy draft creation — see [CreateGameViewModel.confirmTitle]. 1 to 60 characters once
+ * trimmed; an empty title keeps the confirm button disabled rather than showing a validation
+ * message, matching the "prevent, don't warn" pattern used for empty clues. A title matching
+ * one of this creator's *other* games is different: titles aren't identifiers, so that's
+ * warned about, not blocked — the button stays enabled and tapping it proceeds regardless.
+ */
+@Composable
+private fun GameNamingContent(
+    titleInput: String,
+    isCreating: Boolean,
+    isDuplicateTitle: Boolean,
+    onTitleChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onAppear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isValid = titleInput.trim().isNotEmpty()
+
+    // Fetches this creator's own titles once per visit to this screen, purely for the
+    // duplicate warning below — see loadExistingTitlesForDuplicateCheck's own no-op guard for
+    // why calling this on every composition is still just the one fetch.
+    LaunchedEffect(Unit) { onAppear() }
+
+    // Top-aligned, not centred: per 14.1, a keyboard-first screen puts its content at the
+    // top, since a field placed low (as centring it here used to) is a field the keyboard
+    // hides the moment it's tapped. imePadding backs that up so the field and button rise
+    // above the keyboard on shorter screens rather than sitting behind it.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .imePadding()
+            .padding(Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.md)
+    ) {
+        Text(
+            text = stringResource(R.string.create_name_title),
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Text(
+            text = stringResource(R.string.create_name_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        OutlinedTextField(
+            value = titleInput,
+            onValueChange = onTitleChange,
+            label = { Text(stringResource(R.string.create_name_label)) },
+            singleLine = true,
+            // Prose, not a code or identifier, so it capitalises like a sentence rather than
+            // requiring a manual shift tap. See 14.1.
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            modifier = Modifier.fillMaxWidth()
+        )
+        // Non-blocking: the game code is the identifier, not the title, and a creator may
+        // legitimately want the same title twice (e.g. the same route for a different
+        // group). See section 5.2.
+        if (isDuplicateTitle) {
+            Text(
+                text = stringResource(R.string.create_name_duplicate_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Button(
+            onClick = onConfirm,
+            enabled = isValid && !isCreating,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.minTouchTarget)
+        ) {
+            Text(stringResource(R.string.create_name_confirm))
+        }
+    }
+}
+
 @Composable
 private fun CreateGameContent(
     uiState: CreateGameUiState,
@@ -197,18 +325,35 @@ private fun CreateGameContent(
 ) {
     val context = LocalContext.current
     val locationRepository = remember { LocationRepository(context) }
+    val mapTypeRepository = remember { MapTypePreferenceRepository(context) }
+    val mapType by mapTypeRepository.mapType().collectAsState(initial = MapType.NORMAL)
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(REYKJAVIK, 15f)
     }
     var lastKnownLocation by remember { mutableStateOf<LatLng?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Captured once, as of opening this screen: a creator resuming a route built elsewhere
+    // should land where they left off, not back at the device. Device location is only the
+    // camera's starting point for a brand-new game with no posts yet. See section 5.2 and
+    // the "opening an existing game" paragraph there.
+    val lastPostOnOpen = remember { uiState.posts.maxByOrNull { it.index } }
 
     LaunchedEffect(Unit) {
+        if (lastPostOnOpen != null) {
+            cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                LatLng(lastPostOnOpen.lat, lastPostOnOpen.lng),
+                17f
+            )
+        }
         try {
             val location: Location? = locationRepository.getCurrentLocation()
             if (location != null) {
                 val target = LatLng(location.latitude, location.longitude)
                 lastKnownLocation = target
-                cameraPositionState.position = CameraPosition.fromLatLngZoom(target, 17f)
+                if (lastPostOnOpen == null) {
+                    cameraPositionState.position = CameraPosition.fromLatLngZoom(target, 17f)
+                }
             }
         } catch (e: CancellationException) {
             throw e
@@ -234,7 +379,7 @@ private fun CreateGameContent(
                 mapToolbarEnabled = false,
                 myLocationButtonEnabled = false
             )
-            val mapProperties = MapProperties(isMyLocationEnabled = true)
+            val mapProperties = MapProperties(isMyLocationEnabled = true, mapType = mapType)
 
             // The post currently being added/edited is drawn separately below, either as
             // the fixed centre pin or as its own detached marker, never as a numbered one.
@@ -274,19 +419,79 @@ private fun CreateGameContent(
                 }
             }
 
-            // Fixed centre pin: while the location isn't confirmed yet, the map centre IS
-            // the post location, so the pin stays screen-fixed and the map pans under it
-            // rather than the pin being dragged. See section 5.2.
+            // Fixed centre pin: while the location isn't confirmed yet (including
+            // mid-Reposition, after the camera has already animated onto the post's
+            // coordinate below), the map centre IS the post location, so the pin stays
+            // screen-fixed and the map pans under it rather than the pin being dragged. No
+            // separate crosshair is drawn — the pin marks the centre whenever it's unset,
+            // which is the only state where the aim point matters, so a crosshair would be
+            // redundant. Disappears once Set locks a coordinate. See section 5.2 and AC-20.
             if (mode is CreateScreenMode.PostEditor && !mode.locationConfirmed) {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = stringResource(R.string.create_pin_content_description),
-                    tint = MaterialTheme.colorScheme.primary,
+                Box(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .offset(y = -Spacing.md)
-                        .size(Spacing.xl)
-                )
+                        .offset(y = -Spacing.md),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // A dark halo, slightly larger than the pin itself, so it keeps an edge
+                    // over dark satellite/hybrid imagery where the flat orange fill alone can
+                    // lose contrast against the ground. See the map type control below.
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = null,
+                        tint = Color.Black.copy(alpha = 0.55f),
+                        modifier = Modifier.size(Spacing.xl + Spacing.xs)
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = stringResource(R.string.create_pin_content_description),
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(Spacing.xl)
+                    )
+                }
+            }
+
+            // A single icon button rather than persistent per-type buttons: switching layers
+            // is a once-per-session choice, not a per-post one, so it shouldn't cost map area
+            // on a screen where the map is the task. Top corner, not the bottom thumb zone —
+            // 14.1's thumb-zone rule is about the play screen, where the player is walking. A
+            // creator placing posts is standing still. Hybrid matters most here — satellite
+            // imagery with labels lets a post land on a specific tree or path junction that a
+            // vector map doesn't show, which is the common case for rural routes (section
+            // 5.2). The play screen stays on MapType.NORMAL for now; see M5.
+            MapTypeControl(
+                mapType = mapType,
+                onMapTypeChange = { newType ->
+                    coroutineScope.launch { mapTypeRepository.setMapType(newType) }
+                },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(Spacing.md)
+            )
+
+            // Optional recentre-on-me: the camera otherwise never returns to the device
+            // location after the very first post (see the onAdd seed logic below), so this
+            // is the only way back to it when the creator actually wants it. See section 5.2
+            // and AC-19.
+            val currentLocation = lastKnownLocation
+            if (currentLocation != null) {
+                FilledTonalIconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            cameraPositionState.animate(
+                                CameraUpdateFactory.newLatLngZoom(currentLocation, 17f)
+                            )
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(Spacing.md)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.MyLocation,
+                        contentDescription = stringResource(R.string.create_recentre_content_description)
+                    )
+                }
             }
         }
 
@@ -294,7 +499,12 @@ private fun CreateGameContent(
             is CreateScreenMode.Overview -> OverviewControls(
                 uiState = uiState,
                 onAdd = {
-                    val seed = lastKnownLocation ?: cameraPositionState.position.target
+                    // Always the current map centre, with no exception for post 0: the only
+                    // device-centring in this flow is the initial camera position when opening
+                    // a game with no posts yet (see the LaunchedEffect above), and the explicit
+                    // recentre-on-me control. Add itself never overrides wherever the creator
+                    // has since panned to. See section 5.2 and AC-19.
+                    val seed = cameraPositionState.position.target
                     viewModel.beginAddPost(seed.latitude, seed.longitude)
                 },
                 onEdit = viewModel::beginEditSelectedPost,
@@ -304,13 +514,80 @@ private fun CreateGameContent(
             is CreateScreenMode.PostEditor -> PostEditorControls(
                 mode = mode,
                 currentZoom = cameraPositionState.position.zoom,
+                isSaving = uiState.isSaving,
                 onSet = {
                     val target = cameraPositionState.position.target
                     viewModel.confirmLocation(target.latitude, target.longitude)
                 },
+                onReposition = {
+                    // Animate the camera onto the post's existing coordinate *before*
+                    // detaching the pin from the centre, so the pin never jumps to wherever
+                    // the map happened to be panned. Only once the camera lands there does
+                    // the centre become the post's location again, i.e. AC-22.
+                    coroutineScope.launch {
+                        cameraPositionState.animate(
+                            CameraUpdateFactory.newLatLng(LatLng(mode.lat, mode.lng))
+                        )
+                        viewModel.beginReposition()
+                    }
+                },
                 onAddClue = onAddClue,
                 onSave = viewModel::savePost
             )
+
+            // Unreachable in practice: CreateGameContent is only ever composed once Naming
+            // has handed off to Overview. See CreateGameScreen's mode routing above.
+            is CreateScreenMode.Naming -> Unit
+        }
+    }
+}
+
+private data class MapTypeOption(val mapType: MapType, val icon: ImageVector, val labelRes: Int)
+
+private val MAP_TYPE_OPTIONS = listOf(
+    MapTypeOption(MapType.NORMAL, Icons.Filled.Map, R.string.create_map_type_normal),
+    MapTypeOption(MapType.HYBRID, Icons.Filled.Satellite, R.string.create_map_type_hybrid),
+    MapTypeOption(MapType.TERRAIN, Icons.Filled.Terrain, R.string.create_map_type_terrain)
+)
+
+/**
+ * A single Layers button that opens a small menu, the convention Google's own map apps use for
+ * this — not three persistent buttons competing with the map for space. See the call site
+ * above for why.
+ */
+@Composable
+private fun MapTypeControl(
+    mapType: MapType,
+    onMapTypeChange: (MapType) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        FilledTonalIconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Filled.Layers,
+                contentDescription = stringResource(R.string.create_map_type_button)
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            MAP_TYPE_OPTIONS.forEach { option ->
+                val selected = mapType == option.mapType
+                DropdownMenuItem(
+                    text = { Text(stringResource(option.labelRes)) },
+                    leadingIcon = { Icon(imageVector = option.icon, contentDescription = null) },
+                    // Marks which layer is active, per the same convention.
+                    trailingIcon = {
+                        if (selected) {
+                            Icon(imageVector = Icons.Filled.Check, contentDescription = null)
+                        }
+                    },
+                    onClick = {
+                        onMapTypeChange(option.mapType)
+                        expanded = false
+                    }
+                )
+            }
         }
     }
 }
@@ -474,7 +751,9 @@ private fun OverviewControls(
 private fun PostEditorControls(
     mode: CreateScreenMode.PostEditor,
     currentZoom: Float,
+    isSaving: Boolean,
     onSet: () -> Unit,
+    onReposition: () -> Unit,
     onAddClue: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier
@@ -505,21 +784,34 @@ private fun PostEditorControls(
             // rather than the post. "Set location for post N" only applies past post 0
             // because nothing else on this screen shows which post is being placed while
             // adding one. See section 5.2.
-            val setLabel = if (mode.targetIndex == 0) {
-                stringResource(R.string.create_set_start_location)
+            //
+            // Once set, the same button becomes Reposition and its tap is the exact inverse
+            // of Set (see CreateGameViewModel.beginReposition) rather than a separate mode.
+            // Zoom is only required to commit a coordinate, not to re-enter placement, so
+            // Reposition itself is never gated on it. See AC-20.
+            val locationLabel = if (mode.locationConfirmed) {
+                if (mode.targetIndex == 0) {
+                    stringResource(R.string.create_reposition_start)
+                } else {
+                    stringResource(R.string.create_reposition_post, mode.targetIndex)
+                }
             } else {
-                stringResource(R.string.create_set_post_location, mode.targetIndex)
+                if (mode.targetIndex == 0) {
+                    stringResource(R.string.create_set_start_location)
+                } else {
+                    stringResource(R.string.create_set_post_location, mode.targetIndex)
+                }
             }
             OutlinedButton(
-                onClick = onSet,
-                enabled = zoomedInEnough,
+                onClick = if (mode.locationConfirmed) onReposition else onSet,
+                enabled = mode.locationConfirmed || zoomedInEnough,
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = Spacing.minTouchTarget)
             ) {
-                Text(setLabel)
+                Text(locationLabel)
             }
-            // Add clue only becomes available once Set has locked a location (so looking
+            // Add clues only becomes available once Set has locked a location (so looking
             // around while writing a clue can't drag the post along), and never for post 0,
             // which takes no clues. See section 5.2.
             if (mode.targetIndex != 0 && mode.locationConfirmed) {
@@ -536,9 +828,11 @@ private fun PostEditorControls(
 
         // Save is the sole bottom action. Cancel lives in the top bar instead of beside it,
         // per the section 5.2 layout constraint: a mis-tap discarding written clues has no undo.
+        // Disabled while a save is in flight so a second tap can't race the Firestore write
+        // and create a duplicate post document.
         Button(
             onClick = onSave,
-            enabled = mode.locationConfirmed,
+            enabled = mode.locationConfirmed && !isSaving,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = Spacing.minTouchTarget)

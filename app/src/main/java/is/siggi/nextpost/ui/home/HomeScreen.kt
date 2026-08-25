@@ -12,6 +12,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,12 +22,14 @@ import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.ui.theme.Spacing
 
 /**
- * Section 5.1: two primary buttons, Create new game and Play Nextpost. Play has nowhere to
- * go yet (join/play land in M4/M5), so it stays disabled rather than pointing at a dead route.
+ * Section 5.1: two primary buttons, Create new game and Play Nextpost, plus a secondary
+ * My games link. Play has nowhere to go yet (join/play land in M4/M5), so it stays disabled
+ * rather than pointing at a dead route.
  */
 @Composable
 fun HomeScreen(
     onCreateGame: () -> Unit,
+    onMyGames: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -59,6 +62,10 @@ fun HomeScreen(
                 .heightIn(min = Spacing.primaryTouchTarget)
         ) {
             Text(stringResource(R.string.home_play))
+        }
+        Spacer(Modifier.height(Spacing.md))
+        TextButton(onClick = onMyGames) {
+            Text(stringResource(R.string.home_my_games))
         }
     }
 }
