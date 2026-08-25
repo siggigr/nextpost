@@ -163,9 +163,10 @@ fun ClueEditorScreen(
             // Enough rows have been attempted that Done is worth showing, even though a
             // blank among them still blocks it.
             val doneIsRelevant = editor.clues.size >= ClueValidator.MIN_CLUES_PER_SCORED_POST
-            // A creator can't stack up blank fields: the next Add clue waits until the
-            // previous one has something in it.
-            val canAddClue = editor.clues.lastOrNull()?.text?.isBlank() != true
+            // Section 4's 10-clue cap: a creator can't stack up blank fields either, since the
+            // next Add clue waits until the previous one has something in it.
+            val atCap = editor.clues.size >= ClueValidator.MAX_CLUES_PER_POST
+            val canAddClue = editor.clues.lastOrNull()?.text?.isBlank() != true && !atCap
 
             val statusText = when {
                 validation.firstBlankIndex != null -> stringResource(
@@ -177,6 +178,7 @@ fun ClueEditorScreen(
                     ClueValidator.MIN_CLUES_PER_SCORED_POST - validation.nonBlankCount,
                     ClueValidator.MIN_CLUES_PER_SCORED_POST - validation.nonBlankCount
                 )
+                atCap -> stringResource(R.string.clue_editor_status_at_cap)
                 else -> stringResource(R.string.clue_editor_status_met)
             }
 

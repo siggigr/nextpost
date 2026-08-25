@@ -47,6 +47,8 @@
     <string name="create_create_game">Create game</string>
     <string name="create_validation_too_few_posts">Add at least 2 posts to create a game.</string>
     <string name="create_validation_insufficient_clues">Post %1$d needs at least 3 clues (has %2$d).</string>
+    <string name="create_validation_too_many_clues">Post %1$d has %2$d clues; the limit is 10. Remove some before creating the game.</string>
+    <string name="create_publish_error">Couldn\'t publish. Check your connection and try again.</string>
     <string name="create_select_post_hint">Tap a post on the map to edit or delete it.</string>
     <string name="create_pin_content_description">Post location, centred under the map</string>
     <string name="create_post_marker_content_description">Post %1$d</string>
@@ -73,6 +75,11 @@
     </plurals>
     <string name="create_discard_confirm">Discard</string>
     <string name="create_discard_keep_editing">Keep editing</string>
+    <string name="create_published_title">Game published</string>
+    <string name="create_published_body">Share this code so players can join.</string>
+    <string name="create_published_share">Share code</string>
+    <string name="create_published_share_text">Join my %1$s game! Code: %2$s</string>
+    <string name="create_published_done">Done</string>
 
     <!-- Clue editor (section 5.2) -->
     <string name="clue_editor_title">Clues for post %1$d</string>
@@ -88,6 +95,24 @@
         <item quantity="other">%1$d more clues needed to meet the 3-clue minimum.</item>
     </plurals>
     <string name="clue_editor_blank_clue">Clue %1$d is empty.</string>
+    <string name="clue_editor_status_at_cap">10 clues is the limit for one post. Remove one to add another.</string>
     <string name="clue_editor_char_counter">%1$d/%2$d</string>
     <string name="clue_editor_done">Done</string>
+
+    <!-- Join (section 5.3) -->
+    <string name="join_title">Join a game</string>
+    <string name="join_name_label">Your name</string>
+    <string name="join_code_label">Game code</string>
+    <string name="join_button">Join game</string>
+    <string name="join_error_name_required">Enter your name to join.</string>
+    <string name="join_error_code_length">Enter the 6-character game code.</string>
+    <string name="join_error_unknown_code">No game found with that code. Check it with whoever set up the game.</string>
+    <string name="join_error_game_deleted">This game has been deleted by its creator.</string>
+    <string name="join_error_generic">Couldn\'t join. Check the code and try again.</string>
+    <string name="join_finished_dialog_title">This playthrough is finished</string>
+    <string name="join_finished_dialog_body">You already completed this game. Restart to play it again from the beginning.</string>
+    <string name="join_finished_restart">Restart</string>
+    <string name="join_cancel">Cancel</string>
+    <!-- Temporary until M5 adds the play screen to navigate to; see NextpostNavHost's onJoined. -->
+    <string name="join_success_toast">Joined! The play screen isn\'t built yet, so you\'re back at Home.</string>
 </resources>

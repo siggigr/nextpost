@@ -8,6 +8,16 @@ package `is`.siggi.nextpost.domain
 object ClueValidator {
     const val MIN_CLUES_PER_SCORED_POST = 3
 
+    /**
+     * Section 4: the score floor is a `max()`, so without a cap the last ~10% of clues on a
+     * long list cost nothing to open, which is a flat zone in the scoring curve, not a
+     * scoring bug. Ten keeps the floor reachable only on the final clue and matches 5.2's
+     * "vaguest to dead giveaway" arc, which ten clues is already generous for. Enforced here
+     * (Add clue disabled at the cap, per the clue editor) and again at publish time (AC-1's
+     * validator), the same way the minimum is.
+     */
+    const val MAX_CLUES_PER_POST = 10
+
     data class Result(
         val isValid: Boolean,
         val nonBlankCount: Int,

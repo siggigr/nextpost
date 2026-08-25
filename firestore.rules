@@ -1,11 +1,16 @@
 rules_version = '2';
 
-// M3 scope: a creator's own draft games, posts and clues. Player-facing gating (gameCodes
-// reads/creates, published-game reads, session reads/writes) is section 8's remaining scope
-// and lands with M4/M5, added onto this file rather than replacing it — see section 8:
-// "write the rules alongside the feature, not at the end." Deletion (section 5.1) is the one
-// piece of published-game and gameCodes access added early, ahead of M4, because My games
-// needs to delete a published game's whole tree in one operation regardless of milestone.
+// M4 scope: publishing (gameCodes create, the draft->published game transition) and joining
+// (gameCodes read, session create/read/update, the widened post/clue reads for players). See
+// section 8.
+//
+// The widening rule to hold onto: access is scoped to holding a session on this specific
+// game, never to the game's status alone. "Any authenticated user may read a game where
+// status == 'published'" would pass every positive test in this file and would still make
+// every published game in the database readable by every signed-in user — the tempting
+// mistake section 8 calls out by name. hasSession(gameId) below is what actually gates it:
+// a player must join before they can read, and joining requires the code. AC-23 is the
+// negative test for this — verify it in the Rules Playground, not just by reading this file.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -20,56 +25,134 @@ service cloud.firestore {
       return isSignedIn() && game.creatorUid == request.auth.uid && game.status == 'draft';
     }
 
-    // Ownership alone, regardless of status. Deletion (section 5.1) must work on a published
-    // game too, not just a draft, so this is deliberately narrower than isDraftOwner only in
-    // that it drops the status check — it must not be used for read/write of game content.
+    // Ownership alone, regardless of status. Section 8: "Posts and clues are readable by the
+    // creator at any time," and deletion (section 5.1) must work on a published game too, not
+    // just a draft — this is deliberately narrower than isDraftOwner only in that it drops the
+    // status check. Reads and deletion use this; writes to game content stay isDraftOwner-only,
+    // since publishing freezes them (section 5.2: "read-only for the creator except deletion").
     function isGameOwner(gameId) {
       let game = get(/databases/$(database)/documents/games/$(gameId)).data;
       return isSignedIn() && game.creatorUid == request.auth.uid;
     }
 
+    // The one function this file's whole M4 widening rests on: true only once a session
+    // document exists for this uid on this specific game. Not "isSignedIn() && published" —
+    // see this file's header.
+    function hasSession(gameId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/games/$(gameId)/sessions/$(request.auth.uid));
+    }
+
+    function sessionForPlayer(gameId) {
+      return get(/databases/$(database)/documents/games/$(gameId)/sessions/$(request.auth.uid)).data;
+    }
+
+    // Section 8: a post is readable to a player only if it's been reached — index <= the
+    // session's currentPostIndex. Post 0 (index 0) is reachable to anyone who just joined,
+    // since currentPostIndex starts at 0.
+    function canPlayerReadPost(gameId, postIndex) {
+      return hasSession(gameId) && postIndex <= sessionForPlayer(gameId).currentPostIndex;
+    }
+
+    // Section 8: a clue is readable to a player only if it belongs to the post they're
+    // currently hunting for, and only up to how many extra clues they've opened for it.
+    function canPlayerReadClue(gameId, postId, clueIndex) {
+      let session = sessionForPlayer(gameId);
+      let postIndex = get(/databases/$(database)/documents/games/$(gameId)/posts/$(postId)).data.index;
+      return hasSession(gameId)
+        && postIndex == session.currentPostIndex
+        && clueIndex <= session.cluesOpenedForCurrentPost;
+    }
+
     match /games/{gameId} {
-      allow read: if isSignedIn() && resource.data.creatorUid == request.auth.uid;
+      // Widened from creator-only (M3) to creator-or-has-a-session (M4) — this is the rule
+      // AC-23 exercises: sign in as a second user, do not join, confirm this denies.
+      allow read: if isSignedIn() && (resource.data.creatorUid == request.auth.uid || hasSession(gameId));
 
       allow create: if isSignedIn()
         && request.resource.data.creatorUid == request.auth.uid
         && request.resource.data.status == 'draft';
 
-      // creatorUid and status can't move via a plain update: reassigning ownership or
-      // flipping straight to "published" needs its own rule, added when M4 builds publish.
-      allow update: if isSignedIn()
-        && resource.data.creatorUid == request.auth.uid
-        && resource.data.status == 'draft'
-        && request.resource.data.creatorUid == resource.data.creatorUid
-        && request.resource.data.status == 'draft';
+      allow update: if isSignedIn() && resource.data.creatorUid == request.auth.uid && (
+        // Ordinary draft edits (M3): status stays 'draft' on both sides.
+        (resource.data.status == 'draft' && request.resource.data.status == 'draft'
+          && request.resource.data.creatorUid == resource.data.creatorUid)
+        ||
+        // Publish (section 5.2, M4): draft -> published exactly once, creatorUid immutable,
+        // and a real code attached in the very same write that flips status — the two must
+        // land together or a published game could exist with no way to join it. No branch
+        // exists for editing a published game further; that's out of scope for v1, so the
+        // rules simply have nothing that permits it.
+        (resource.data.status == 'draft' && request.resource.data.status == 'published'
+          && request.resource.data.creatorUid == resource.data.creatorUid
+          && request.resource.data.code is string
+          && request.resource.data.code.size() == 6)
+      );
 
       // Widened from draft-only per section 5.1: My games lets a creator delete a published
       // game, not just a draft, so status is no longer part of this check.
       allow delete: if isSignedIn() && resource.data.creatorUid == request.auth.uid;
 
       match /posts/{postId} {
-        allow read, write: if isDraftOwner(gameId);
+        // isGameOwner, not isDraftOwner: section 8 says posts stay readable to the creator at
+        // any time, not only while still a draft. Widened with the player condition for M4.
+        allow read: if isGameOwner(gameId) || canPlayerReadPost(gameId, resource.data.index);
+        allow write: if isDraftOwner(gameId);
         // Deleting a published game's posts is part of the same walk-the-tree operation as
         // deleting the game document itself (see GameRepository.deleteGame), so this can't
-        // be gated on draft status the way the read/write rule above is.
+        // be gated on draft status the way the write rule above is.
         allow delete: if isGameOwner(gameId);
 
         match /clues/{clueId} {
-          allow read, write: if isDraftOwner(gameId);
+          allow read: if isGameOwner(gameId) || canPlayerReadClue(gameId, postId, resource.data.index);
+          allow write: if isDraftOwner(gameId);
           allow delete: if isGameOwner(gameId);
         }
       }
 
       match /sessions/{sessionId} {
-        // Full read/write for players and the creator is section 8's remaining scope, landing
-        // with M4/M5. Delete only, for now, so a game deletion can clear sessions too.
+        // A player reads only their own session; the creator may read any session on their
+        // own game (section 8: "future leaderboard").
+        allow read: if isSignedIn() && (sessionId == request.auth.uid || isGameOwner(gameId));
+
+        // Section 5.3's join step. The get() below is the rules engine's own privileged read
+        // — it doesn't depend on the requester's own read access to the game document, which
+        // is exactly right here: this create is what's supposed to happen *before* that
+        // access exists (see hasSession above). A session can only be created on a published
+        // game, which is what stops joining a draft — there is no code to join it with anyway,
+        // but this closes the gap regardless of how a gameId was obtained.
+        allow create: if isSignedIn()
+          && sessionId == request.auth.uid
+          && request.resource.data.playerUid == request.auth.uid
+          && get(/databases/$(database)/documents/games/$(gameId)).data.status == 'published';
+
+        // Section 8's accepted v1 limitation ("Known limitation"): no Cloud Function
+        // validates individual session field transitions (arrival, clue reveals, scoring).
+        // Any write a player makes to their own session is trusted, the same way
+        // client-computed arrival already is. playerUid itself stays immutable.
+        allow update: if isSignedIn()
+          && sessionId == request.auth.uid
+          && resource.data.playerUid == request.auth.uid
+          && request.resource.data.playerUid == request.auth.uid;
+
         allow delete: if isGameOwner(gameId);
       }
     }
 
     match /gameCodes/{code} {
-      // Read (for joining) and create (for publishing) are M4 scope. Delete is needed now:
-      // deleting a published game removes its code in the same operation, per section 5.1,
+      // Needed to join (section 8): any signed-in user may read a code to resolve its gameId.
+      // This alone reveals nothing about the game itself — the games/{gameId} read rule above
+      // still requires a session before the document behind that id becomes readable, and
+      // nothing here allows listing or enumerating codes, only reading one you already have.
+      allow read: if isSignedIn();
+
+      // Minted only at publish time, only by the creator of the game the code names — the
+      // transaction in GameRepository.publishGame writes this in the same commit as the
+      // games/{gameId} publish update above.
+      allow create: if isSignedIn()
+        && get(/databases/$(database)/documents/games/$(request.resource.data.gameId)).data.creatorUid == request.auth.uid;
+
+      // Deleting a published game removes its code in the same operation, per section 5.1,
       // or the code stays resolvable and a joining player hits a game that no longer exists.
       allow delete: if isSignedIn()
         && get(/databases/$(database)/documents/games/$(resource.data.gameId)).data.creatorUid == request.auth.uid;

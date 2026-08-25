@@ -3,6 +3,7 @@ package `is`.siggi.nextpost.navigation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -14,10 +15,13 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.data.repository.PlayerNamePreferenceRepository
 import `is`.siggi.nextpost.ui.create.ClueEditorScreen
 import `is`.siggi.nextpost.ui.create.CreateGameScreen
 import `is`.siggi.nextpost.ui.create.CreateGameViewModel
 import `is`.siggi.nextpost.ui.home.HomeScreen
+import `is`.siggi.nextpost.ui.join.JoinGameScreen
+import `is`.siggi.nextpost.ui.join.JoinGameViewModel
 import `is`.siggi.nextpost.ui.mygames.MyGamesScreen
 import `is`.siggi.nextpost.ui.mygames.MyGamesViewModel
 
@@ -34,7 +38,26 @@ fun NextpostNavHost(
         composable(NextpostDestinations.HOME) {
             HomeScreen(
                 onCreateGame = { navController.navigate(NextpostDestinations.createGraphRoute()) },
+                onPlay = { navController.navigate(NextpostDestinations.JOIN) },
                 onMyGames = { navController.navigate(NextpostDestinations.MY_GAMES) }
+            )
+        }
+
+        composable(NextpostDestinations.JOIN) {
+            val context = LocalContext.current
+            val viewModel: JoinGameViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer { JoinGameViewModel(GameRepository(), PlayerNamePreferenceRepository(context)) }
+                }
+            )
+            JoinGameScreen(
+                viewModel = viewModel,
+                onNavigateUp = { navController.popBackStack() },
+                // M5 will replace this with navigating to the play screen; for now, joining
+                // returns to Home (matching M4's scope — section 10: "join screen resolves a
+                // code and creates a session," not "…and starts play"), with a toast in
+                // JoinGameScreen confirming the join happened.
+                onJoined = { navController.popBackStack() }
             )
         }
 

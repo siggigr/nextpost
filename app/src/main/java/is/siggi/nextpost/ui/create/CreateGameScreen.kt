@@ -1,14 +1,17 @@
 package `is`.siggi.nextpost.ui.create
 
+import android.content.Intent
 import android.location.Location
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -58,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
@@ -158,7 +162,10 @@ fun CreateGameScreen(
                     }
                 },
                 actions = {
-                    if (editor == null && uiState.mode !is CreateScreenMode.Naming) {
+                    if (editor == null &&
+                        uiState.mode !is CreateScreenMode.Naming &&
+                        uiState.mode !is CreateScreenMode.Published
+                    ) {
                         Text(
                             text = pluralStringResource(
                                 R.plurals.create_post_count,
@@ -198,6 +205,14 @@ fun CreateGameScreen(
                         onConfirm = viewModel::confirmTitle,
                         onAppear = viewModel::loadExistingTitlesForDuplicateCheck
                     )
+
+                    // Replaces the map outright rather than overlaying it: a published game
+                    // is read-only for the creator, so there's nothing left here to go back
+                    // to editing. See CreateScreenMode.Published's own doc.
+                    uiState.mode is CreateScreenMode.Published -> {
+                        val published = uiState.mode as CreateScreenMode.Published
+                        GamePublishedContent(code = published.code, onDone = onNavigateUp)
+                    }
 
                     else -> CreateGameContent(
                         uiState = uiState,
@@ -508,7 +523,8 @@ private fun CreateGameContent(
                     viewModel.beginAddPost(seed.latitude, seed.longitude)
                 },
                 onEdit = viewModel::beginEditSelectedPost,
-                onDelete = viewModel::deleteSelectedPost
+                onDelete = viewModel::deleteSelectedPost,
+                onPublish = viewModel::publishGame
             )
 
             is CreateScreenMode.PostEditor -> PostEditorControls(
@@ -535,9 +551,77 @@ private fun CreateGameContent(
                 onSave = viewModel::savePost
             )
 
-            // Unreachable in practice: CreateGameContent is only ever composed once Naming
-            // has handed off to Overview. See CreateGameScreen's mode routing above.
-            is CreateScreenMode.Naming -> Unit
+            // Unreachable in practice: CreateGameContent is only ever composed for Naming's
+            // hand-off to Overview and for whatever comes after, up to but not including
+            // Published, which routes to GamePublishedContent instead. See CreateGameScreen's
+            // mode routing above.
+            is CreateScreenMode.Naming, is CreateScreenMode.Published -> Unit
+        }
+    }
+}
+
+/**
+ * Section 5.2's publish confirmation: the code shown large, plus a share sheet. Reached only
+ * once, from [CreateScreenMode.Published] — a published game is read-only for the creator, so
+ * this screen has nowhere to send the creator but away (Done, which pops back to Home).
+ */
+@Composable
+private fun GamePublishedContent(
+    code: String,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val shareText = stringResource(R.string.create_published_share_text, stringResource(R.string.app_name), code)
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(Spacing.lg),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = stringResource(R.string.create_published_title),
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(Spacing.sm))
+        Text(
+            text = stringResource(R.string.create_published_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        Text(
+            text = code,
+            style = MaterialTheme.typography.displayMedium,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(Spacing.xl))
+        OutlinedButton(
+            onClick = {
+                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, shareText)
+                }
+                context.startActivity(Intent.createChooser(sendIntent, null))
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.minTouchTarget)
+        ) {
+            Text(stringResource(R.string.create_published_share))
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        Button(
+            onClick = onDone,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.minTouchTarget)
+        ) {
+            Text(stringResource(R.string.create_published_done))
         }
     }
 }
@@ -668,6 +752,7 @@ private fun OverviewControls(
     onAdd: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onPublish: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val hasSelection = uiState.selectedPostIndex != null
@@ -717,11 +802,9 @@ private fun OverviewControls(
         }
 
         val validation = uiState.validation
-        // Publishing (code generation, Firestore write) is M4 scope. This button only
-        // needs to be correctly gated for AC-1 in M2.
         Button(
-            onClick = {},
-            enabled = validation is CreateGameValidation.Valid,
+            onClick = onPublish,
+            enabled = validation is CreateGameValidation.Valid && !uiState.isPublishing,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = Spacing.minTouchTarget)
@@ -736,12 +819,27 @@ private fun OverviewControls(
                 validation.postIndex,
                 validation.clueCount
             )
+            is CreateGameValidation.TooManyClues -> stringResource(
+                R.string.create_validation_too_many_clues,
+                validation.postIndex,
+                validation.clueCount
+            )
         }
         if (validationMessage != null) {
             Text(
                 text = validationMessage,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        // Section 7: "then surfacing an error" — retries-exhausted or any other publish
+        // failure (a permission denial, dropped connection) shows here rather than silently
+        // resetting the button, which is exactly how this went unnoticed before.
+        if (uiState.publishError) {
+            Text(
+                text = stringResource(R.string.create_publish_error),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
             )
         }
     }

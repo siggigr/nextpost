@@ -23,12 +23,13 @@ import `is`.siggi.nextpost.ui.theme.Spacing
 
 /**
  * Section 5.1: two primary buttons, Create new game and Play Nextpost, plus a secondary
- * My games link. Play has nowhere to go yet (join/play land in M4/M5), so it stays disabled
- * rather than pointing at a dead route.
+ * My games link. Play now opens the join screen (M4); the play loop itself is M5, so joining
+ * currently ends back here rather than at a target screen that doesn't exist yet.
  */
 @Composable
 fun HomeScreen(
     onCreateGame: () -> Unit,
+    onPlay: () -> Unit,
     onMyGames: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -55,8 +56,7 @@ fun HomeScreen(
         }
         Spacer(Modifier.height(Spacing.md))
         OutlinedButton(
-            onClick = {},
-            enabled = false,
+            onClick = onPlay,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = Spacing.primaryTouchTarget)

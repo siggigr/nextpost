@@ -40,6 +40,14 @@ sealed interface CreateScreenMode {
         val clues: List<Clue>,
         val clueEntryStarted: Boolean = false
     ) : CreateScreenMode
+
+    /**
+     * The post-publish confirmation (section 5.2): replaces the map entirely rather than
+     * overlaying it, since a published game is read-only for the creator from here — there's
+     * nothing left on this screen to go back to editing. [code] is shown large with a share
+     * sheet.
+     */
+    data class Published(val code: String) : CreateScreenMode
 }
 
 /** 1 to 60 characters once trimmed, per section 5.2 and AC-18. */
@@ -49,6 +57,8 @@ sealed interface CreateGameValidation {
     data object Valid : CreateGameValidation
     data object TooFewPosts : CreateGameValidation
     data class InsufficientClues(val postIndex: Int, val clueCount: Int) : CreateGameValidation
+    /** Section 4's 10-clue cap, checked again at publish time — see [ClueValidator]. */
+    data class TooManyClues(val postIndex: Int, val clueCount: Int) : CreateGameValidation
 }
 
 data class CreateGameUiState(
@@ -61,6 +71,9 @@ data class CreateGameUiState(
     val isLoadingDraft: Boolean = false,
     val isSaving: Boolean = false,
     val isCreatingDraft: Boolean = false,
+    val isPublishing: Boolean = false,
+    /** Section 7: "then surfacing an error" — covers retry exhaustion and any other failure. */
+    val publishError: Boolean = false,
     /**
      * Trimmed, lower-cased titles of this creator's *other* games (this draft's own current
      * title excluded), fetched once for the duplicate-title warning in section 5.2. A warning
@@ -78,9 +91,18 @@ data class CreateGameUiState(
 
 private fun computeValidation(posts: List<Post>): CreateGameValidation {
     if (posts.size < 2) return CreateGameValidation.TooFewPosts
-    val offending = posts
-        .filter { it.index != 0 }
-        .sortedBy { it.index }
+
+    val scoredPosts = posts.filter { it.index != 0 }.sortedBy { it.index }
+
+    // Checked ahead of the minimum below: the clue editor already disables Add clue at the
+    // cap (section 4), so this is a defensive re-check at publish time, the same way the
+    // minimum is re-checked here rather than trusted from the editor alone.
+    val tooMany = scoredPosts.firstOrNull { it.clues.size > ClueValidator.MAX_CLUES_PER_POST }
+    if (tooMany != null) {
+        return CreateGameValidation.TooManyClues(tooMany.index, tooMany.clues.size)
+    }
+
+    val offending = scoredPosts
         .map { post -> post.index to ClueValidator.validate(post.clues.map { it.text }) }
         .firstOrNull { (_, result) -> !result.isValid }
     return if (offending != null) {
@@ -319,6 +341,37 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
             } catch (e: Exception) {
                 // TODO(M7): surface a retry-able error state instead of silently dropping this.
                 _uiState.update { it.copy(isSaving = false) }
+            }
+        }
+    }
+
+    /**
+     * Section 5.2's publish step. Trusts [CreateGameUiState.validation], computed from the
+     * posts already held locally, rather than re-validating here — the same trust
+     * [savePost] places in the clue list it's handed. Guarded on validity and on
+     * [CreateGameUiState.isPublishing] so a double-tap can't fire two publishes racing each
+     * other for a code.
+     */
+    fun publishGame() {
+        val state = _uiState.value
+        val gameId = state.gameId ?: return
+        if (state.validation !is CreateGameValidation.Valid || state.isPublishing) return
+
+        _uiState.update { it.copy(isPublishing = true, publishError = false) }
+        viewModelScope.launch {
+            try {
+                val published = repository.publishGame(gameId)
+                _uiState.update {
+                    it.copy(isPublishing = false, mode = CreateScreenMode.Published(published.code))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Section 7: retries-exhausted and any other failure (permission denial,
+                // network) all land here and must actually be visible — a silent reset here
+                // is exactly how a broken publish path went undetected before. See
+                // OverviewControls' publishError text.
+                _uiState.update { it.copy(isPublishing = false, publishError = true) }
             }
         }
     }

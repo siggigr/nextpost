@@ -51,4 +51,11 @@ class ClueValidatorTest {
         assertEquals(3, result.nonBlankCount)
         assertNull(result.firstBlankIndex)
     }
+
+    @Test
+    fun `the cap is ten, per section 4`() {
+        // Not a validate() case — MAX_CLUES_PER_POST gates Add clue and publish separately
+        // (ClueEditorScreen, CreateGameViewModel). This just pins the constant itself.
+        assertEquals(10, ClueValidator.MAX_CLUES_PER_POST)
+    }
 }

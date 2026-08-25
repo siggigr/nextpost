@@ -2,7 +2,18 @@
 
 **Purpose of this document:** hand this to Claude Code (or any agent/IDE assistant) as the starting brief for the project. It defines scope, stack, data model, screens, rules, and a milestone order to build in.
 
-**Status:** pre-implementation. Section 12 lists decisions that still need confirming; everything else is a working default that can be changed.
+**Two numbering systems, and they are unrelated.** *Sections* (1 to 15) are reference chapters describing **what** the app is; read them for detail on a topic. *Milestones* (M0 to M8, listed in section 10) describe **when** things get built; work through them in order. Section 4 is not milestone M4, and no section corresponds to a milestone. Section 5 in particular spans four milestones:
+
+| Part of section 5 | Built in |
+|---|---|
+| 5.1 Home, 5.2 Create game flow | M2 |
+| 5.2 Publish and code confirmation, 5.3 Join screen | M4 |
+| 5.3 Play screen | M5 |
+| 5.3 Game complete | M6 |
+
+So section 5 stays incomplete until M6, by design.
+
+**Status:** M0 to M3 complete and verified on device. M4 in progress. Section 12 lists decisions that still need confirming; everything else is a working default that can be changed.
 
 ---
 

@@ -5,6 +5,8 @@ import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
+import `is`.siggi.nextpost.data.model.Session
+import `is`.siggi.nextpost.data.model.SessionStatus
 
 /**
  * Manual field-by-field mapping rather than Firestore's reflective toObject(), so
@@ -63,3 +65,24 @@ internal fun DocumentSnapshot.toClue(): Clue = Clue(
     index = (getLong("index") ?: 0L).toInt(),
     text = getString("text") ?: ""
 )
+
+/**
+ * Read-only: unlike Game/Post/Clue, [Session] has no matching `toFieldMap()`. Its writes
+ * (join, resume, restart) each touch a different subset of fields, so GameRepository builds
+ * each one directly rather than through a single shared field map.
+ */
+internal fun DocumentSnapshot.toSession(): Session {
+    @Suppress("UNCHECKED_CAST")
+    val rawScores = get("postScores") as? Map<String, Any?> ?: emptyMap()
+    return Session(
+        playerUid = getString("playerUid") ?: "",
+        displayName = getString("displayName") ?: "",
+        status = SessionStatus.fromWireValue(getString("status")),
+        currentPostIndex = (getLong("currentPostIndex") ?: 0L).toInt(),
+        cluesOpenedForCurrentPost = (getLong("cluesOpenedForCurrentPost") ?: 0L).toInt(),
+        postScores = rawScores.mapValues { (_, value) -> (value as? Number)?.toDouble() ?: 0.0 },
+        totalScore = getDouble("totalScore") ?: 0.0,
+        startedAt = getTimestamp("startedAt")?.toDate()?.time,
+        finishedAt = getTimestamp("finishedAt")?.toDate()?.time
+    )
+}

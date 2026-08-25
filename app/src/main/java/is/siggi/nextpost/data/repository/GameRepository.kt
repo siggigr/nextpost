@@ -5,6 +5,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.firestore
 import `is`.siggi.nextpost.data.firebase.FirestorePaths
 import `is`.siggi.nextpost.data.firebase.awaitResult
@@ -12,18 +13,35 @@ import `is`.siggi.nextpost.data.firebase.toClue
 import `is`.siggi.nextpost.data.firebase.toFieldMap
 import `is`.siggi.nextpost.data.firebase.toGame
 import `is`.siggi.nextpost.data.firebase.toPost
+import `is`.siggi.nextpost.data.firebase.toSession
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
+import `is`.siggi.nextpost.data.model.SessionStatus
+import `is`.siggi.nextpost.domain.GameCodeGenerator
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 data class SavePostResult(val gameId: String, val post: Post)
 
+/** section 5.3's join outcomes, one per distinct message the join screen must show. */
+sealed interface JoinOutcome {
+    data class Joined(val gameId: String) : JoinOutcome
+    data class AlreadyFinished(val gameId: String) : JoinOutcome
+    data object UnknownCode : JoinOutcome
+    data object GameDeleted : JoinOutcome
+}
+
+/** [publishGame] gives up after retrying [GameCodeGenerator.MAX_GENERATION_ATTEMPTS] times. */
+class GameCodeGenerationFailedException : Exception("Could not generate a unique game code")
+
+/** Internal-only signal from inside a transaction that the candidate code collided. */
+private class GameCodeCollisionException : Exception()
+
 /**
- * Owns all Firestore access for games/posts/clues, per section 2's architecture: the
- * ViewModel calls this, never Firebase directly. M3 scope only — publishing, codes and
- * sessions are M4/M5.
+ * Owns all Firestore access for games/posts/clues/sessions, per section 2's architecture: the
+ * ViewModel calls this, never Firebase directly. Publish and join are M4 scope; the play loop
+ * that writes session progress (currentPostIndex, cluesOpenedForCurrentPost, scores) is M5.
  */
 class GameRepository(
     private val firestore: FirebaseFirestore = Firebase.firestore,
@@ -44,10 +62,11 @@ class GameRepository(
 
     /**
      * Waits for anonymous sign-in to land rather than assuming it already has. MainActivity
-     * fires signInAnonymously() without awaiting it, so a creator tapping "Create new game"
-     * on a cold start could otherwise race ahead of it.
+     * fires signInAnonymously() without awaiting it, so a cold start tapping "Create new game"
+     * or "Join game" could otherwise race ahead of it. Used by creator and player flows alike
+     * — anonymous auth doesn't distinguish the two, only which uid ends up in which field.
      */
-    private suspend fun awaitCreatorUid(): String {
+    private suspend fun awaitUid(): String {
         auth.currentUser?.uid?.let { return it }
         return suspendCancellableCoroutine { continuation ->
             lateinit var listener: FirebaseAuth.AuthStateListener
@@ -70,7 +89,7 @@ class GameRepository(
      * enforces that.
      */
     suspend fun createDraftGame(title: String = ""): Game {
-        val creatorUid = awaitCreatorUid()
+        val creatorUid = awaitUid()
         val docRef = gamesCollection().document()
         val fields = mapOf(
             "code" to "",
@@ -180,7 +199,7 @@ class GameRepository(
      * published games alike (section 5.1).
      */
     suspend fun loadMyGames(): List<Game> {
-        val creatorUid = awaitCreatorUid()
+        val creatorUid = awaitUid()
         val snapshot = gamesCollection()
             .whereEqualTo("creatorUid", creatorUid)
             .get()
@@ -217,4 +236,112 @@ class GameRepository(
 
         batch.commit().awaitResult()
     }
+
+    /**
+     * Section 5.2's publish step and section 7's code generation. Code generation and the
+     * uniqueness check must be one atomic unit — a transaction that reads `gameCodes/{CODE}`
+     * and, only if it's unclaimed, creates it and flips the game to published in the same
+     * commit — or two publishes racing the same candidate could both believe they won it.
+     * On a collision the transaction throws and rolls back cleanly with nothing written, so
+     * retrying with a fresh candidate is safe; [GameCodeGenerator.MAX_GENERATION_ATTEMPTS]
+     * bounds that per section 7.
+     *
+     * Validation (AC-1, the 10-clue cap) is the caller's job — this trusts the ViewModel
+     * already checked, the same way [saveDraftPost] trusts the clue list it's handed.
+     */
+    suspend fun publishGame(gameId: String): Game {
+        val gameRef = gamesCollection().document(gameId)
+        repeat(GameCodeGenerator.MAX_GENERATION_ATTEMPTS) {
+            val candidate = GameCodeGenerator.generate()
+            val codeRef = gameCodesCollection().document(candidate)
+            try {
+                firestore.runTransaction { transaction ->
+                    if (transaction.get(codeRef).exists()) throw GameCodeCollisionException()
+                    transaction.set(codeRef, mapOf("gameId" to gameId))
+                    transaction.update(
+                        gameRef,
+                        mapOf(
+                            "code" to candidate,
+                            "status" to GameStatus.PUBLISHED.wireValue,
+                            "publishedAt" to FieldValue.serverTimestamp()
+                        )
+                    )
+                }.awaitResult()
+                return gameRef.get().awaitResult().toGame()
+            } catch (e: GameCodeCollisionException) {
+                // Candidate taken; loop again with a fresh one.
+            }
+        }
+        throw GameCodeGenerationFailedException()
+    }
+
+    /**
+     * Section 5.3's join step. Deliberately never reads `games/{gameId}` here — per section 8,
+     * a player must hold a session before the game document becomes readable to them at all,
+     * so reading it here (before one exists) would just be denied by the rules this is meant
+     * to satisfy. `gameCodes/{CODE}` is the one collection a signed-in user can always read,
+     * so that's the whole lookup: it hands back a gameId, and everything past that is a write.
+     *
+     * A pre-existing session is resumed, not replaced — [displayName] updates it if the player
+     * changed their name, but progress fields are untouched. [GameDeleted] surfaces from the
+     * *create* path only: it's the rules' own `get()` check on the game's status rejecting the
+     * write, which is the signal available for an orphaned code (this shouldn't happen, since
+     * deleting a game deletes its code in the same operation — section 5.1 — but a session
+     * that already exists implies the game was published at some point, so only a brand new
+     * session's create can actually hit this).
+     */
+    suspend fun joinGame(code: String, displayName: String): JoinOutcome {
+        val codeDoc = gameCodesCollection().document(code).get().awaitResult()
+        val gameId = codeDoc.getString("gameId") ?: return JoinOutcome.UnknownCode
+
+        val uid = awaitUid()
+        val sessionRef = sessionsCollection(gameId).document(uid)
+        val existing = sessionRef.get().awaitResult()
+
+        return try {
+            if (existing.exists()) {
+                val existingSession = existing.toSession()
+                if (existingSession.displayName != displayName) {
+                    sessionRef.update("displayName", displayName).awaitResult()
+                }
+                if (existingSession.status == SessionStatus.FINISHED) {
+                    JoinOutcome.AlreadyFinished(gameId)
+                } else {
+                    JoinOutcome.Joined(gameId)
+                }
+            } else {
+                sessionRef.set(newSessionFields(uid, displayName)).awaitResult()
+                JoinOutcome.Joined(gameId)
+            }
+        } catch (e: FirebaseFirestoreException) {
+            if (e.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                JoinOutcome.GameDeleted
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /**
+     * The "offer restart" path from section 5.3: same session document, progress zeroed.
+     * [displayName] is whatever the player is submitting right now, the same as a normal
+     * resume — not whatever the finished session happened to hold, which could be stale by
+     * the time the player accepts the restart offer.
+     */
+    suspend fun restartSession(gameId: String, displayName: String) {
+        val uid = awaitUid()
+        sessionsCollection(gameId).document(uid).set(newSessionFields(uid, displayName)).awaitResult()
+    }
+
+    private fun newSessionFields(uid: String, displayName: String): Map<String, Any?> = mapOf(
+        "playerUid" to uid,
+        "displayName" to displayName,
+        "status" to SessionStatus.ACTIVE.wireValue,
+        "currentPostIndex" to 0,
+        "cluesOpenedForCurrentPost" to 0,
+        "postScores" to emptyMap<String, Double>(),
+        "totalScore" to 0.0,
+        "startedAt" to FieldValue.serverTimestamp(),
+        "finishedAt" to null
+    )
 }
