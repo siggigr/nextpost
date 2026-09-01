@@ -103,7 +103,6 @@ games/{gameId}
 
 games/{gameId}/posts/{postId}
     index: Int                      # 0 = start post, then 1, 2, 3...
-    title: String                   # optional label, e.g. "Bekkurinn við tjörnina"
     lat: Double
     lng: Double
     radiusMeters: Int

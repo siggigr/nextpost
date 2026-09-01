@@ -39,7 +39,6 @@ internal fun DocumentSnapshot.toGame(): Game = Game(
 
 internal fun Post.toFieldMap(): Map<String, Any?> = mapOf(
     "index" to index,
-    "title" to title,
     "lat" to lat,
     "lng" to lng,
     "radiusMeters" to radiusMeters,
@@ -49,7 +48,6 @@ internal fun Post.toFieldMap(): Map<String, Any?> = mapOf(
 internal fun DocumentSnapshot.toPost(clues: List<Clue>): Post = Post(
     id = id,
     index = (getLong("index") ?: 0L).toInt(),
-    title = getString("title") ?: "",
     lat = getDouble("lat") ?: 0.0,
     lng = getDouble("lng") ?: 0.0,
     radiusMeters = (getLong("radiusMeters") ?: Post.DEFAULT_RADIUS_METERS.toLong()).toInt(),
@@ -93,6 +91,7 @@ internal fun DocumentSnapshot.toSession(): Session {
         postScores = postScores,
         totalScore = getDouble("totalScore") ?: 0.0,
         startedAt = getTimestamp("startedAt")?.toDate()?.time,
-        finishedAt = getTimestamp("finishedAt")?.toDate()?.time
+        finishedAt = getTimestamp("finishedAt")?.toDate()?.time,
+        attemptNumber = (getLong("attemptNumber") ?: 1L).toInt()
     )
 }

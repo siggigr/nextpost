@@ -19,7 +19,6 @@ data class Post(
     val lat: Double,
     val lng: Double,
     val radiusMeters: Int = DEFAULT_RADIUS_METERS,
-    val title: String = "",
     val clues: List<Clue> = emptyList(),
     val clueCount: Int = clues.size
 ) {

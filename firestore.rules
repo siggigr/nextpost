@@ -136,6 +136,27 @@ service cloud.firestore {
           && request.resource.data.playerUid == request.auth.uid;
 
         allow delete: if isGameOwner(gameId);
+
+        match /attempts/{attemptId} {
+          // Section 13.1: restartSession archives the finished session here before resetting
+          // it, so a player can read their own history back. isGameOwner(gameId) is also
+          // granted read — not merely delete — because Firestore has no way to let the owner
+          // *list* this subcollection (required to discover attempt ids for AC-21's tree walk)
+          // without that same list also handing back each document's content: `list` and
+          // `get` aren't separable that way. This mirrors the existing sessions rule just
+          // above, which already grants isGameOwner(gameId) full read on the live session
+          // ("future leaderboard"); attempts are that same player's earlier scores, so giving
+          // the owner no less visibility into the archive than into the live document isn't a
+          // new category of exposure. "Nobody else can [read]" (still true) means no *other
+          // player* — never the owner, who was already the one exception on sessions.
+          allow read: if isSignedIn() && (sessionId == request.auth.uid || isGameOwner(gameId));
+          allow create: if isSignedIn() && sessionId == request.auth.uid;
+
+          // Section 5.1/AC-21: deleteGame walks this subcollection too. Attempts are otherwise
+          // immutable — there is no update rule, since an archived attempt is never meant to
+          // change once written.
+          allow delete: if isGameOwner(gameId);
+        }
       }
     }
 

@@ -28,6 +28,11 @@ data class PostResult(
  * One player's playthrough of one game. The document id is [playerUid] (`sessions/{uid}`), so
  * unlike [Post]/[Clue] there is no separate `id` field here. [startedAt]/[finishedAt] are epoch
  * millis rather than a Firebase Timestamp, matching the rest of `data/model/` — see [Game].
+ *
+ * [attemptNumber] counts which run this is, starting at 1 on the first join. Section 13.1:
+ * `restartSession` archives the finished session into `sessions/{uid}/attempts/{attemptId}`
+ * before resetting this document, so this field is what makes it obvious — while play is in
+ * progress — which attempt is live, without needing to count the archive.
  */
 data class Session(
     val playerUid: String = "",
@@ -38,5 +43,6 @@ data class Session(
     val postScores: Map<String, PostResult> = emptyMap(),
     val totalScore: Double = 0.0,
     val startedAt: Long? = null,
-    val finishedAt: Long? = null
+    val finishedAt: Long? = null,
+    val attemptNumber: Int = 1
 )

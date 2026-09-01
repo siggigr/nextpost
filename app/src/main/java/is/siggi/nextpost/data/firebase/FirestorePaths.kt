@@ -6,5 +6,6 @@ internal object FirestorePaths {
     const val POSTS = "posts"
     const val CLUES = "clues"
     const val SESSIONS = "sessions"
+    const val ATTEMPTS = "attempts"
     const val GAME_CODES = "gameCodes"
 }

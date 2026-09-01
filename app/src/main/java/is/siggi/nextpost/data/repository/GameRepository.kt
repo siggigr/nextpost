@@ -264,10 +264,11 @@ class GameRepository(
 
     /**
      * Walks the whole document tree before deleting the game itself, since Firestore does not
-     * cascade deletes to subcollections: clues, then posts, then sessions, then the game
-     * document. A published game's `gameCodes/{CODE}` entry goes in the same batch, or the
-     * code stays resolvable and a player joining it lands on a game that no longer exists.
-     * See section 5.1 and AC-21.
+     * cascade deletes to subcollections: clues, then posts, then sessions (and each session's
+     * archived `attempts` — section 13.1's restart history would otherwise be orphaned exactly
+     * like the sessions it hangs off), then the game document. A published game's
+     * `gameCodes/{CODE}` entry goes in the same batch, or the code stays resolvable and a
+     * player joining it lands on a game that no longer exists. See section 5.1 and AC-21.
      */
     suspend fun deleteGame(game: Game) {
         val gameId = game.id
@@ -281,7 +282,11 @@ class GameRepository(
         }
 
         val sessionDocs = sessionsCollection(gameId).get().awaitResult()
-        sessionDocs.documents.forEach { batch.delete(it.reference) }
+        for (sessionDoc in sessionDocs.documents) {
+            val attemptDocs = sessionDoc.reference.collection(FirestorePaths.ATTEMPTS).get().awaitResult()
+            attemptDocs.documents.forEach { batch.delete(it.reference) }
+            batch.delete(sessionDoc.reference)
+        }
 
         batch.delete(gamesCollection().document(gameId))
 
@@ -378,14 +383,28 @@ class GameRepository(
     }
 
     /**
-     * The "offer restart" path from section 5.3: same session document, progress zeroed.
+     * The "offer restart" path from section 5.3, and section 13.1's decision that a restart
+     * must not destroy the attempt it replaces: the finished session is archived to
+     * `sessions/{uid}/attempts/{attemptId}` — its fields copied verbatim, so `totalScore`,
+     * `postScores`, `startedAt` and `finishedAt` all survive intact for a future leaderboard —
+     * and only then does the live `sessions/{uid}` document reset. Both writes are one batch
+     * commit, so either both land or neither does: a dropped write can never archive the score
+     * and fail to reset, or reset the session and silently lose the score it was holding.
      * [displayName] is whatever the player is submitting right now, the same as a normal
      * resume — not whatever the finished session happened to hold, which could be stale by
      * the time the player accepts the restart offer.
      */
     suspend fun restartSession(gameId: String, displayName: String) {
         val uid = awaitUid()
-        sessionsCollection(gameId).document(uid).set(newSessionFields(uid, displayName)).awaitResult()
+        val sessionRef = sessionsCollection(gameId).document(uid)
+        val existing = sessionRef.get().awaitResult()
+        val existingAttemptNumber = (existing.getLong("attemptNumber") ?: 1L).toInt()
+
+        val batch = firestore.batch()
+        val attemptRef = sessionRef.collection(FirestorePaths.ATTEMPTS).document()
+        batch.set(attemptRef, existing.data ?: emptyMap<String, Any?>())
+        batch.set(sessionRef, newSessionFields(uid, displayName, attemptNumber = existingAttemptNumber + 1))
+        batch.commit().awaitResult()
     }
 
     /**
@@ -585,7 +604,7 @@ class GameRepository(
         )
     }
 
-    private fun newSessionFields(uid: String, displayName: String): Map<String, Any?> = mapOf(
+    private fun newSessionFields(uid: String, displayName: String, attemptNumber: Int = 1): Map<String, Any?> = mapOf(
         "playerUid" to uid,
         "displayName" to displayName,
         "status" to SessionStatus.ACTIVE.wireValue,
@@ -594,6 +613,7 @@ class GameRepository(
         "postScores" to emptyMap<String, PostResult>(),
         "totalScore" to 0.0,
         "startedAt" to FieldValue.serverTimestamp(),
-        "finishedAt" to null
+        "finishedAt" to null,
+        "attemptNumber" to attemptNumber
     )
 }

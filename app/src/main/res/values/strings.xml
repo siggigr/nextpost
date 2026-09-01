@@ -120,7 +120,7 @@
     <string name="join_error_game_deleted">This game has been deleted by its creator.</string>
     <string name="join_error_generic">Couldn\'t join. Check the code and try again.</string>
     <string name="join_finished_dialog_title">This playthrough is finished</string>
-    <string name="join_finished_dialog_body">You already completed this game. Restart to play it again from the beginning.</string>
+    <string name="join_finished_dialog_body">You already completed this game. Your score is kept — restart to play it again from the beginning.</string>
     <string name="join_finished_restart">Restart</string>
     <string name="join_finished_restart_error_permission">Couldn\'t restart — you may not have access to this game.</string>
     <string name="join_finished_restart_error_unreachable">Couldn\'t restart. Check your connection and try again.</string>
