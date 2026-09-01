@@ -4,6 +4,8 @@ import `is`.siggi.nextpost.data.repository.GameRepository
 import `is`.siggi.nextpost.data.repository.JoinOutcome
 import `is`.siggi.nextpost.data.repository.PlayerNamePreferenceRepository
 import `is`.siggi.nextpost.domain.GameCodeGenerator
+import `is`.siggi.nextpost.ui.common.WriteError
+import `is`.siggi.nextpost.ui.common.toWriteError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -34,7 +36,11 @@ data class JoinGameUiState(
     /** Non-null once a join succeeds; the screen navigates away and this is a one-shot value. */
     val joinedGameId: String? = null,
     /** Section 5.3's "session already finished (offer restart)" — the gameId awaiting a choice. */
-    val pendingRestartGameId: String? = null
+    val pendingRestartGameId: String? = null,
+    /** A denied or dropped restartSession write must say so — the dialog stays open on failure
+     * (see [JoinGameViewModel.restartAndJoin]) so this explains why rather than leaving the
+     * creator wondering why tapping Restart did nothing. */
+    val restartError: WriteError? = null
 )
 
 /**
@@ -65,9 +71,23 @@ class JoinGameViewModel(
         _uiState.update { it.copy(name = value.take(MAX_PLAYER_NAME_LENGTH), nameError = null) }
     }
 
-    /** Normalised as it's typed (section 5.3), so pasted lowercase or spaced input still fits. */
+    /**
+     * Normalised as it's typed (section 5.3), so pasted lowercase or spaced input still fits.
+     *
+     * A paste is detected by the jump in length: ordinary typing adds at most one character
+     * per call, while a paste drops in several at once. Only then is the code extracted from
+     * surrounding text (e.g. a share-sheet message) — for plain typing, take() keeps the
+     * simpler, front-anchored behaviour so an extra keystroke past the sixth character is
+     * just ignored rather than sliding the window and rewriting what's already been typed.
+     */
     fun updateCode(value: String) {
-        val normalized = GameCodeGenerator.normalize(value).take(GameCodeGenerator.CODE_LENGTH)
+        val current = _uiState.value.code
+        val isPaste = value.length > current.length + 1
+        val normalized = if (isPaste) {
+            GameCodeGenerator.extractCode(value)
+        } else {
+            GameCodeGenerator.normalize(value).take(GameCodeGenerator.CODE_LENGTH)
+        }
         _uiState.update { it.copy(code = normalized, codeError = null) }
     }
 
@@ -114,7 +134,7 @@ class JoinGameViewModel(
         val gameId = _uiState.value.pendingRestartGameId ?: return
         val trimmedName = _uiState.value.name.trim()
 
-        _uiState.update { it.copy(isJoining = true) }
+        _uiState.update { it.copy(isJoining = true, restartError = null) }
         viewModelScope.launch {
             try {
                 repository.restartSession(gameId, trimmedName)
@@ -125,12 +145,12 @@ class JoinGameViewModel(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isJoining = false) }
+                _uiState.update { it.copy(isJoining = false, restartError = e.toWriteError()) }
             }
         }
     }
 
     fun dismissRestartOffer() {
-        _uiState.update { it.copy(pendingRestartGameId = null) }
+        _uiState.update { it.copy(pendingRestartGameId = null, restartError = null) }
     }
 }

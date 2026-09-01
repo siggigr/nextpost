@@ -5,6 +5,7 @@ import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
+import `is`.siggi.nextpost.data.model.PostResult
 import `is`.siggi.nextpost.data.model.Session
 import `is`.siggi.nextpost.data.model.SessionStatus
 
@@ -76,13 +77,20 @@ internal fun DocumentSnapshot.toClue(): Clue = Clue(
 internal fun DocumentSnapshot.toSession(): Session {
     @Suppress("UNCHECKED_CAST")
     val rawScores = get("postScores") as? Map<String, Any?> ?: emptyMap()
+    val postScores = rawScores.mapValues { (_, value) ->
+        val entry = value as? Map<*, *> ?: emptyMap<Any?, Any?>()
+        PostResult(
+            score = (entry["score"] as? Number)?.toDouble() ?: 0.0,
+            cluesOpened = (entry["cluesOpened"] as? Number)?.toInt() ?: 0
+        )
+    }
     return Session(
         playerUid = getString("playerUid") ?: "",
         displayName = getString("displayName") ?: "",
         status = SessionStatus.fromWireValue(getString("status")),
         currentPostIndex = (getLong("currentPostIndex") ?: 0L).toInt(),
         cluesOpenedForCurrentPost = (getLong("cluesOpenedForCurrentPost") ?: 0L).toInt(),
-        postScores = rawScores.mapValues { (_, value) -> (value as? Number)?.toDouble() ?: 0.0 },
+        postScores = postScores,
         totalScore = getDouble("totalScore") ?: 0.0,
         startedAt = getTimestamp("startedAt")?.toDate()?.time,
         finishedAt = getTimestamp("finishedAt")?.toDate()?.time

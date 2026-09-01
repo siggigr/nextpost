@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.GpsNotFixed
@@ -55,16 +57,27 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.Clue
+import `is`.siggi.nextpost.data.repository.GameCompletionSummary
 import `is`.siggi.nextpost.data.repository.LocationRepository
+import `is`.siggi.nextpost.data.repository.PostScoreBreakdown
 import `is`.siggi.nextpost.domain.ScoreCalculator
 import `is`.siggi.nextpost.ui.common.ArrivalRadiusCircle
 import `is`.siggi.nextpost.ui.common.LocationAccessGate
+import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.common.rememberLocationAccessState
 import `is`.siggi.nextpost.ui.theme.Spacing
 import kotlin.math.roundToInt
 
 /** Fallback centre before the first GPS fix lands, matching M0/M1's default (see CreateGameScreen). */
 private val REYKJAVIK = LatLng(64.1466, -21.9426)
+
+/** One lookup shared by every write error this screen surfaces — see [WriteError]'s own doc. */
+@Composable
+private fun writeErrorText(error: WriteError, permissionDeniedRes: Int, unreachableRes: Int): String =
+    when (error) {
+        WriteError.PermissionDenied -> stringResource(permissionDeniedRes)
+        WriteError.Unreachable -> stringResource(unreachableRes)
+    }
 
 /**
  * Section 5.3's play screen. Location gating mirrors CreateGameScreen: the map (not the whole
@@ -139,6 +152,10 @@ fun PlayScreen(
                 )
 
                 uiState.isGameComplete -> PlayCompleteContent(
+                    summary = uiState.completionSummary,
+                    isRestarting = uiState.isRestartingGame,
+                    playAgainError = uiState.playAgainError,
+                    onPlayAgain = viewModel::playAgain,
                     onBackHome = onExit,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -178,12 +195,16 @@ fun PlayScreen(
 @Composable
 private fun playTopBarTitle(uiState: PlayUiState): String {
     if (uiState.isGameComplete) return stringResource(R.string.play_complete_title)
-    val target = uiState.target ?: return stringResource(R.string.play_post_counter_start)
-    return if (target.index == 0) {
+    val target = uiState.target
+    val base = if (target == null || target.index == 0) {
         stringResource(R.string.play_post_counter_start)
     } else {
         stringResource(R.string.play_post_counter, target.index, uiState.game?.scoredPostCount ?: target.index)
     }
+    // Section 5.3: "Running total score in the top bar." Left off until the session has
+    // loaded rather than showing a misleading "0 pts" during the initial fetch.
+    val session = uiState.session ?: return base
+    return stringResource(R.string.play_top_bar_with_score, base, ScoreCalculator.formatScore(session.totalScore))
 }
 
 @Composable
@@ -271,7 +292,25 @@ private fun PlayingContent(
 
         ClueCard(uiState = uiState, onShowNextClue = viewModel::requestOpenNextClue)
 
-        if (uiState.manualMiss != null) {
+        val arrivalError = uiState.arrivalError
+        if (arrivalError != null) {
+            // Takes priority over the miss/waiting states below: the player was inside the
+            // radius with a good fix and the write itself failed, which is a technical problem
+            // to report, not routine "not there yet" feedback.
+            Text(
+                text = writeErrorText(
+                    arrivalError,
+                    permissionDeniedRes = R.string.play_arrival_error_permission,
+                    unreachableRes = R.string.play_arrival_error_unreachable
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            )
+        } else if (uiState.manualMiss != null) {
             val miss = uiState.manualMiss
             val message = if (miss.wasAccuracyRejected) {
                 stringResource(
@@ -407,14 +446,31 @@ private fun ClueConfirmationDialog(
         onDismissRequest = viewModel::dismissClueConfirmation,
         title = { Text(stringResource(R.string.play_open_clue_confirm_title)) },
         text = {
-            Text(
-                stringResource(
-                    R.string.play_open_clue_confirm_body,
-                    nextClueNumber,
-                    target.clueCount,
-                    ScoreCalculator.formatScore(resultingScore)
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                Text(
+                    stringResource(
+                        R.string.play_open_clue_confirm_body,
+                        nextClueNumber,
+                        target.clueCount,
+                        ScoreCalculator.formatScore(resultingScore)
+                    )
                 )
-            )
+                // The dialog stays open on failure (see confirmOpenNextClue) so the confirmed
+                // cost above doesn't appear to have been silently charged — this says the write
+                // didn't go through and the Confirm button is safe to tap again.
+                val revealClueError = uiState.revealClueError
+                if (revealClueError != null) {
+                    Text(
+                        text = writeErrorText(
+                            revealClueError,
+                            permissionDeniedRes = R.string.play_reveal_clue_error_permission,
+                            unreachableRes = R.string.play_reveal_clue_error_unreachable
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
         },
         confirmButton = {
             TextButton(onClick = viewModel::confirmOpenNextClue, enabled = !uiState.isRevealingClue) {
@@ -449,18 +505,34 @@ private fun StartPostMarker() {
 }
 
 /**
- * M5's placeholder: the session is correctly marked finished and the score is safely stored
- * (see GameRepository.recordArrival), but the breakdown screen itself is M6 scope. This just
- * confirms the game ended and gets the player back to Home rather than leaving them stranded
- * on a play screen with nowhere left to go.
+ * Section 5.3's "Game complete" screen: total, maximum possible, a per-post breakdown of clues
+ * opened, and elapsed time (recorded for display only — it never affects score, per section 4/6).
+ * [summary] is null only for a single frame between [isGameComplete] flipping true and the load
+ * or arrival result that carries it landing; the loading indicator covers that gap.
  */
 @Composable
-private fun PlayCompleteContent(onBackHome: () -> Unit, modifier: Modifier = Modifier) {
+private fun PlayCompleteContent(
+    summary: GameCompletionSummary?,
+    isRestarting: Boolean,
+    playAgainError: WriteError?,
+    onPlayAgain: () -> Unit,
+    onBackHome: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (summary == null) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
     Column(
-        modifier = modifier.padding(Spacing.lg),
-        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .padding(Spacing.lg)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Spacer(Modifier.height(Spacing.lg))
         Text(
             text = stringResource(R.string.play_complete_title),
             style = MaterialTheme.typography.headlineSmall,
@@ -468,13 +540,51 @@ private fun PlayCompleteContent(onBackHome: () -> Unit, modifier: Modifier = Mod
         )
         Spacer(Modifier.height(Spacing.sm))
         Text(
-            text = stringResource(R.string.play_complete_body),
+            text = stringResource(
+                R.string.play_complete_total,
+                ScoreCalculator.formatScore(summary.totalScore),
+                ScoreCalculator.formatScore(summary.maxPossibleScore)
+            ),
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = stringResource(R.string.play_complete_elapsed, formatElapsed(summary.elapsedMillis)),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+        Spacer(Modifier.height(Spacing.lg))
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs)
+        ) {
+            summary.breakdown.forEach { row -> PostBreakdownRow(row) }
+        }
         Spacer(Modifier.height(Spacing.xl))
         Button(
+            onClick = onPlayAgain,
+            enabled = !isRestarting,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Spacing.minTouchTarget)
+        ) {
+            Text(stringResource(R.string.play_complete_play_again))
+        }
+        if (playAgainError != null) {
+            Text(
+                text = writeErrorText(
+                    playAgainError,
+                    permissionDeniedRes = R.string.play_restart_error_permission,
+                    unreachableRes = R.string.play_restart_error_unreachable
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(Modifier.height(Spacing.sm))
+        TextButton(
             onClick = onBackHome,
             modifier = Modifier
                 .fillMaxWidth()
@@ -482,7 +592,41 @@ private fun PlayCompleteContent(onBackHome: () -> Unit, modifier: Modifier = Mod
         ) {
             Text(stringResource(R.string.play_complete_back_home))
         }
+        Spacer(Modifier.height(Spacing.lg))
     }
+}
+
+@Composable
+private fun PostBreakdownRow(row: PostScoreBreakdown, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(modifier = Modifier.padding(Spacing.md)) {
+            Text(
+                text = stringResource(R.string.play_complete_breakdown_title, row.postIndex),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = stringResource(
+                    R.string.play_complete_breakdown_detail,
+                    ScoreCalculator.formatScore(row.score),
+                    row.cluesOpened,
+                    row.totalClues
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** mm:ss — enough precision for a display-only figure that never affects score. */
+private fun formatElapsed(millis: Long): String {
+    val totalSeconds = millis / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
 }
 
 /**

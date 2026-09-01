@@ -49,4 +49,34 @@ class GameCodeGeneratorTest {
         val code = GameCodeGenerator.generate()
         assertEquals(code, GameCodeGenerator.normalize(code))
     }
+
+    @Test
+    fun `extractCode finds the code in a share-sheet message`() {
+        assertEquals(
+            "RZ2SBL",
+            GameCodeGenerator.extractCode("Join my Nextpost game! Code: RZ2SBL")
+        )
+    }
+
+    @Test
+    fun `extractCode handles a lowercase code`() {
+        assertEquals("RZ2SBL", GameCodeGenerator.extractCode("rz2sbl"))
+    }
+
+    @Test
+    fun `extractCode strips leading and trailing whitespace`() {
+        assertEquals("RZ2SBL", GameCodeGenerator.extractCode("  RZ2SBL  "))
+    }
+
+    @Test
+    fun `extractCode takes the rightmost candidate when several runs match`() {
+        // Two different six-character alphabet runs; the real code is the one at the end.
+        assertEquals("Z3X4CD", GameCodeGenerator.extractCode("A7K2QM nonsense Z3X4CD"))
+    }
+
+    @Test
+    fun `extractCode is idempotent on an already-normalized code`() {
+        val code = GameCodeGenerator.generate()
+        assertEquals(code, GameCodeGenerator.extractCode(code))
+    }
 }

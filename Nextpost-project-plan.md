@@ -481,8 +481,31 @@ These are set to defaults in this document. Confirm or change them.
 
 Photo clues and server-side arrival validation are excluded partly on cost grounds, not only on complexity. See section 15.2.
 
+### 13.1 Leaderboard (first v2 candidate)
 
-iOS client, editing published games, photo and audio clues, leaderboards, live player tracking for the creator, teams, offline maps, deep-link joining, server-side arrival validation, push notifications.
+Showing every player's name and score for a game, on the completion screen below **Back to home** and probably also to the creator from My games. This is the feature that turns Nextpost from a solitary walk into something people compare afterwards, and the data model already supports it: each session carries `displayName`, `totalScore`, `status` and timing, keyed to the game.
+
+**One decision cannot wait for v2, because it is about data rather than UI.**
+
+**Does "Play again" preserve the previous attempt?** `restartSession` currently resets the player's session for that game. If it overwrites, every earlier score is destroyed the moment someone replays, so a leaderboard built later has no history to show — and a player can quietly retry until they score 200/200, overwriting the attempt that recorded their real performance. Decide now:
+
+- *Preserve attempts.* Sessions become `sessions/{uid}_{attemptNumber}` or gain an `attempts` subcollection. More storage, more query complexity, but the history exists and the leaderboard can show best, first, or all.
+- *Overwrite.* Simpler, and defensible if the leaderboard is only ever meant to show a player's current standing. But it is unrecoverable: data not kept now cannot be reconstructed later.
+
+Preserving is the safer default, since storage is free at this scale and the reverse decision is irreversible.
+
+**What the feature itself needs when built:**
+
+- **Rules widening,** so a player can read other sessions on a game they hold a session for. The section 8 trap applies exactly as before: scope on holding a session, never on the game being published, and prove the negative case in the Rules Playground.
+- **A tiebreak.** On a short game, several players scoring 200 out of 200 is the normal case rather than an edge case. Elapsed time is the natural tiebreak and would finally give the recorded time a purpose.
+- **Treat names as untrusted display data.** They are unverified free text written by one player and shown to others, so the cap-and-escape rule in 5.3 stops being theoretical.
+- **One-shot reads,** per 15.2. A leaderboard is exactly the screen where a snapshot listener looks tempting and is not needed.
+
+### 13.2 Also out of scope
+
+iOS client, editing published games, photo and audio clues, live player tracking for the creator, teams, offline maps, deep-link joining, server-side arrival validation, push notifications.
+
+
 
 ---
 

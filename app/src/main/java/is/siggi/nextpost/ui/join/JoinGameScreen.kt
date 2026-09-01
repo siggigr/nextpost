@@ -16,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -30,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import `is`.siggi.nextpost.R
+import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.theme.Spacing
 
 /**
@@ -130,7 +132,26 @@ fun JoinGameScreen(
             AlertDialog(
                 onDismissRequest = viewModel::dismissRestartOffer,
                 title = { Text(stringResource(R.string.join_finished_dialog_title)) },
-                text = { Text(stringResource(R.string.join_finished_dialog_body)) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                        Text(stringResource(R.string.join_finished_dialog_body))
+                        // The dialog stays open on failure (restartAndJoin) so this must say
+                        // why, rather than a Restart tap that silently did nothing.
+                        val restartError = uiState.restartError
+                        if (restartError != null) {
+                            Text(
+                                text = when (restartError) {
+                                    WriteError.PermissionDenied ->
+                                        stringResource(R.string.join_finished_restart_error_permission)
+                                    WriteError.Unreachable ->
+                                        stringResource(R.string.join_finished_restart_error_unreachable)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                },
                 confirmButton = {
                     TextButton(onClick = viewModel::restartAndJoin) {
                         Text(stringResource(R.string.join_finished_restart))

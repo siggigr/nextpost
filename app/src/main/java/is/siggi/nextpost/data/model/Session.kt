@@ -13,6 +13,18 @@ enum class SessionStatus(val wireValue: String) {
 }
 
 /**
+ * One scored post's outcome within a session. [cluesOpened] is stored directly at arrival time
+ * (the free clue plus however many extras were open) rather than reconstructed later from
+ * [score]: inverting the scoring formula only works while the floor collapses onto a single,
+ * unambiguous clue count, which is a fact about the current [is.siggi.nextpost.domain.ClueValidator.MAX_CLUES_PER_POST]
+ * value, not a durable property of the formula — see section 3's model notes.
+ */
+data class PostResult(
+    val score: Double = 0.0,
+    val cluesOpened: Int = 0
+)
+
+/**
  * One player's playthrough of one game. The document id is [playerUid] (`sessions/{uid}`), so
  * unlike [Post]/[Clue] there is no separate `id` field here. [startedAt]/[finishedAt] are epoch
  * millis rather than a Firebase Timestamp, matching the rest of `data/model/` — see [Game].
@@ -23,7 +35,7 @@ data class Session(
     val status: SessionStatus = SessionStatus.ACTIVE,
     val currentPostIndex: Int = 0,
     val cluesOpenedForCurrentPost: Int = 0,
-    val postScores: Map<String, Double> = emptyMap(),
+    val postScores: Map<String, PostResult> = emptyMap(),
     val totalScore: Double = 0.0,
     val startedAt: Long? = null,
     val finishedAt: Long? = null

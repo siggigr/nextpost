@@ -2,6 +2,8 @@ package `is`.siggi.nextpost.ui.mygames
 
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.ui.common.WriteError
+import `is`.siggi.nextpost.ui.common.toWriteError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -13,7 +15,10 @@ import kotlinx.coroutines.launch
 
 data class MyGamesUiState(
     val isLoading: Boolean = true,
-    val games: List<Game> = emptyList()
+    val games: List<Game> = emptyList(),
+    /** A denied or dropped delete must say so — the row reappearing via [MyGamesViewModel.refresh]
+     * already signals *that* it failed, but not *why*. */
+    val deleteError: WriteError? = null
 )
 
 /**
@@ -49,16 +54,26 @@ class MyGamesViewModel(private val repository: GameRepository) : ViewModel() {
      * refresh() re-fetches so a row that didn't actually delete doesn't stay silently gone.
      */
     fun deleteGame(game: Game) {
-        _uiState.update { state -> state.copy(games = state.games.filterNot { it.id == game.id }) }
+        _uiState.update { state ->
+            state.copy(games = state.games.filterNot { it.id == game.id }, deleteError = null)
+        }
         viewModelScope.launch {
             try {
                 repository.deleteGame(game)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // TODO(M7): surface a retry-able error instead of silently re-syncing.
+                // refresh() brings the row back (this can't just re-insert it locally — the
+                // row it filtered out is gone from state by now), but a reappearing row says
+                // only *that* the delete failed, not *why*; deleteError carries the why.
+                _uiState.update { it.copy(deleteError = e.toWriteError()) }
                 refresh()
             }
         }
+    }
+
+    /** Dismisses the delete-failure message once the creator has seen it. */
+    fun dismissDeleteError() {
+        _uiState.update { it.copy(deleteError = null) }
     }
 }

@@ -73,11 +73,13 @@ import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberUpdatedMarkerState
 import `is`.siggi.nextpost.R
+import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.repository.LocationRepository
 import `is`.siggi.nextpost.data.repository.MapTypePreferenceRepository
 import `is`.siggi.nextpost.ui.common.ArrivalRadiusCircle
 import `is`.siggi.nextpost.ui.common.LocationAccessGate
+import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.common.rememberLocationAccessState
 import `is`.siggi.nextpost.ui.theme.Spacing
 import kotlinx.coroutines.CancellationException
@@ -92,6 +94,15 @@ private val REYKJAVIK = LatLng(64.1466, -21.9426)
  * metres. See section 5.2.
  */
 private const val MIN_ZOOM_FOR_SET = 17f
+
+/** One lookup shared by every screen-local write error, so "which words for which failure" is
+ * decided in exactly one place per screen rather than re-derived at each call site. */
+@Composable
+private fun writeErrorText(error: WriteError, permissionDeniedRes: Int, unreachableRes: Int): String =
+    when (error) {
+        WriteError.PermissionDenied -> stringResource(permissionDeniedRes)
+        WriteError.Unreachable -> stringResource(unreachableRes)
+    }
 
 /**
  * Section 5.2. Location gating reuses the M1 infrastructure: the map itself (not the whole
@@ -145,6 +156,10 @@ fun CreateGameScreen(
                     Text(title)
                 },
                 navigationIcon = {
+                    // No icon at all once published: GamePublishedContent's own Done button is
+                    // the only way off this screen. A back arrow here looked like ordinary
+                    // navigation and let a reflexive tap skip the mandatory code/share step —
+                    // the bug this guards against. See CreateScreenMode.Published's doc.
                     if (editor != null) {
                         IconButton(onClick = requestCancel) {
                             Icon(
@@ -152,7 +167,7 @@ fun CreateGameScreen(
                                 contentDescription = stringResource(R.string.create_cancel)
                             )
                         }
-                    } else {
+                    } else if (uiState.mode !is CreateScreenMode.Published) {
                         IconButton(onClick = onNavigateUp) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -201,6 +216,7 @@ fun CreateGameScreen(
                         titleInput = uiState.titleInput,
                         isCreating = uiState.isCreatingDraft,
                         isDuplicateTitle = uiState.isDuplicateTitle,
+                        namingError = uiState.namingError,
                         onTitleChange = viewModel::updateTitleInput,
                         onConfirm = viewModel::confirmTitle,
                         onAppear = viewModel::loadExistingTitlesForDuplicateCheck
@@ -267,6 +283,7 @@ private fun GameNamingContent(
     titleInput: String,
     isCreating: Boolean,
     isDuplicateTitle: Boolean,
+    namingError: WriteError?,
     onTitleChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onAppear: () -> Unit,
@@ -327,6 +344,20 @@ private fun GameNamingContent(
                 .heightIn(min = Spacing.minTouchTarget)
         ) {
             Text(stringResource(R.string.create_name_confirm))
+        }
+        // A write that fails must say so: this is createDraftGame/renameDraftGame, not just a
+        // local field edit, so a denied or dropped write here needs to be visible, not a
+        // button that silently stops spinning with the screen otherwise unchanged.
+        if (namingError != null) {
+            Text(
+                text = writeErrorText(
+                    namingError,
+                    permissionDeniedRes = R.string.create_naming_error_permission,
+                    unreachableRes = R.string.create_naming_error_unreachable
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
         }
     }
 }
@@ -411,7 +442,15 @@ private fun CreateGameContent(
                         NumberedPostMarker(
                             post = post,
                             selected = uiState.selectedPostIndex == post.index,
-                            onClick = { viewModel.selectPost(post.index) }
+                            // Section 5.2: a published game's posts stay visible for review but
+                            // selection exists only to feed Edit/Delete, neither of which the
+                            // read-only overview offers — so selecting one here has nothing to
+                            // do, and doesn't happen.
+                            onClick = {
+                                if (uiState.gameStatus != GameStatus.PUBLISHED) {
+                                    viewModel.selectPost(post.index)
+                                }
+                            }
                         )
                     }
                 }
@@ -511,26 +550,34 @@ private fun CreateGameContent(
         }
 
         when (mode) {
-            is CreateScreenMode.Overview -> OverviewControls(
-                uiState = uiState,
-                onAdd = {
-                    // Always the current map centre, with no exception for post 0: the only
-                    // device-centring in this flow is the initial camera position when opening
-                    // a game with no posts yet (see the LaunchedEffect above), and the explicit
-                    // recentre-on-me control. Add itself never overrides wherever the creator
-                    // has since panned to. See section 5.2 and AC-19.
-                    val seed = cameraPositionState.position.target
-                    viewModel.beginAddPost(seed.latitude, seed.longitude)
-                },
-                onEdit = viewModel::beginEditSelectedPost,
-                onDelete = viewModel::deleteSelectedPost,
-                onPublish = viewModel::publishGame
-            )
+            // Section 5.2: "published games are read-only for the creator except for
+            // deletion." Add/Edit/Delete/Create-game all write to a document the rules will
+            // now refuse — see PublishedOverviewControls' own doc for what replaces them.
+            is CreateScreenMode.Overview -> if (uiState.gameStatus == GameStatus.PUBLISHED) {
+                PublishedOverviewControls(code = uiState.gameCode)
+            } else {
+                OverviewControls(
+                    uiState = uiState,
+                    onAdd = {
+                        // Always the current map centre, with no exception for post 0: the only
+                        // device-centring in this flow is the initial camera position when opening
+                        // a game with no posts yet (see the LaunchedEffect above), and the explicit
+                        // recentre-on-me control. Add itself never overrides wherever the creator
+                        // has since panned to. See section 5.2 and AC-19.
+                        val seed = cameraPositionState.position.target
+                        viewModel.beginAddPost(seed.latitude, seed.longitude)
+                    },
+                    onEdit = viewModel::beginEditSelectedPost,
+                    onDelete = viewModel::deleteSelectedPost,
+                    onPublish = viewModel::publishGame
+                )
+            }
 
             is CreateScreenMode.PostEditor -> PostEditorControls(
                 mode = mode,
                 currentZoom = cameraPositionState.position.zoom,
                 isSaving = uiState.isSaving,
+                saveError = uiState.saveError,
                 onSet = {
                     val target = cameraPositionState.position.target
                     viewModel.confirmLocation(target.latitude, target.longitude)
@@ -571,9 +618,6 @@ private fun GamePublishedContent(
     onDone: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val shareText = stringResource(R.string.create_published_share_text, stringResource(R.string.app_name), code)
-
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -600,20 +644,7 @@ private fun GamePublishedContent(
             textAlign = TextAlign.Center
         )
         Spacer(Modifier.height(Spacing.xl))
-        OutlinedButton(
-            onClick = {
-                val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, shareText)
-                }
-                context.startActivity(Intent.createChooser(sendIntent, null))
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = Spacing.minTouchTarget)
-        ) {
-            Text(stringResource(R.string.create_published_share))
-        }
+        ShareCodeButton(code = code, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(Spacing.sm))
         Button(
             onClick = onDone,
@@ -623,6 +654,58 @@ private fun GamePublishedContent(
         ) {
             Text(stringResource(R.string.create_published_done))
         }
+    }
+}
+
+/**
+ * Section 5.2: reopening a published game from My games replaces Add/Edit/Delete/Create-game
+ * outright, not just disables them — those all write to a document the rules now refuse (see
+ * this file's read-only routing above), so there is nothing left for them to do. What a creator
+ * opening a published game actually wants is the code: this is currently the *only* way to
+ * retrieve it once the one-time post-publish confirmation screen (GamePublishedContent) is gone,
+ * since My games shows status but never the code itself.
+ */
+@Composable
+private fun PublishedOverviewControls(code: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm)
+    ) {
+        Text(
+            text = stringResource(R.string.create_readonly_notice),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = code,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+        ShareCodeButton(code = code, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+/** The one place that builds the join-code share intent — [GamePublishedContent] and
+ * [PublishedOverviewControls] both hand a creator the same code the same way. */
+@Composable
+private fun ShareCodeButton(code: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val shareText = stringResource(R.string.create_published_share_text, stringResource(R.string.app_name), code)
+
+    OutlinedButton(
+        onClick = {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, shareText)
+            }
+            context.startActivity(Intent.createChooser(sendIntent, null))
+        },
+        modifier = modifier.heightIn(min = Spacing.minTouchTarget)
+    ) {
+        Text(stringResource(R.string.create_published_share))
     }
 }
 
@@ -834,10 +917,30 @@ private fun OverviewControls(
         }
         // Section 7: "then surfacing an error" — retries-exhausted or any other publish
         // failure (a permission denial, dropped connection) shows here rather than silently
-        // resetting the button, which is exactly how this went unnoticed before.
-        if (uiState.publishError) {
+        // resetting the button, which is exactly how this went unnoticed before. Distinguished
+        // via toWriteError() so a permission denial never reads as a network problem.
+        val publishError = uiState.publishError
+        if (publishError != null) {
             Text(
-                text = stringResource(R.string.create_publish_error),
+                text = writeErrorText(
+                    publishError,
+                    permissionDeniedRes = R.string.create_publish_error_permission,
+                    unreachableRes = R.string.create_publish_error_unreachable
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+        // Reverted-and-reselected on failure by deleteSelectedPost, so this always describes
+        // the post that's still selected below it.
+        val deletePostError = uiState.deletePostError
+        if (deletePostError != null) {
+            Text(
+                text = writeErrorText(
+                    deletePostError,
+                    permissionDeniedRes = R.string.create_delete_post_error_permission,
+                    unreachableRes = R.string.create_delete_post_error_unreachable
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
@@ -850,6 +953,7 @@ private fun PostEditorControls(
     mode: CreateScreenMode.PostEditor,
     currentZoom: Float,
     isSaving: Boolean,
+    saveError: WriteError?,
     onSet: () -> Unit,
     onReposition: () -> Unit,
     onAddClue: () -> Unit,
@@ -936,6 +1040,19 @@ private fun PostEditorControls(
                 .heightIn(min = Spacing.minTouchTarget)
         ) {
             Text(stringResource(R.string.create_save))
+        }
+        // A denied or dropped save must say so — this used to discard the post and its clues
+        // with no explanation at all. See CreateGameViewModel.savePost.
+        if (saveError != null) {
+            Text(
+                text = writeErrorText(
+                    saveError,
+                    permissionDeniedRes = R.string.create_save_error_permission,
+                    unreachableRes = R.string.create_save_error_unreachable
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
         }
     }
 }

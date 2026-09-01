@@ -25,19 +25,25 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
+import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.theme.Spacing
 import java.time.Instant
 import java.time.ZoneId
@@ -59,6 +65,22 @@ fun MyGamesScreen(
     // section 5.1 and 14.1.
     var pendingDelete by remember { mutableStateOf<Game?>(null) }
 
+    // This screen loads once (MyGamesViewModel.init), but its data goes stale the moment the
+    // creator leaves to publish or edit a game and comes back — a status still reading "draft"
+    // right after publishing is the most visible case. Re-check on resume rather than only on
+    // first composition, the same fix as the M1 location permission gate (LocationAccess.kt).
+    val currentRefresh by rememberUpdatedState(viewModel::refresh)
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentRefresh()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -75,33 +97,56 @@ fun MyGamesScreen(
             )
         }
     ) { innerPadding ->
-        Box(
+        Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
-            when {
-                uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-
-                uiState.games.isEmpty() -> Text(
-                    text = stringResource(R.string.mygames_empty),
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
+            // A delete that fails must say so: the row already reappears via refresh() to keep
+            // the list truthful, but that alone says only that it failed, not why.
+            val deleteError = uiState.deleteError
+            if (deleteError != null) {
+                Text(
+                    text = when (deleteError) {
+                        WriteError.PermissionDenied -> stringResource(R.string.mygames_delete_error_permission)
+                        WriteError.Unreachable -> stringResource(R.string.mygames_delete_error_unreachable)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(Spacing.lg)
+                        .fillMaxWidth()
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm)
                 )
+            }
 
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(Spacing.md)
-                ) {
-                    items(uiState.games, key = { it.id }) { game ->
-                        GameRow(
-                            game = game,
-                            onClick = { onOpenDraft(game.id) },
-                            onDeleteClick = { pendingDelete = game }
-                        )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                when {
+                    uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+
+                    uiState.games.isEmpty() -> Text(
+                        text = stringResource(R.string.mygames_empty),
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(Spacing.lg)
+                    )
+
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(Spacing.md)
+                    ) {
+                        items(uiState.games, key = { it.id }) { game ->
+                            GameRow(
+                                game = game,
+                                onClick = { onOpenDraft(game.id) },
+                                onDeleteClick = { pendingDelete = game }
+                            )
+                        }
                     }
                 }
             }

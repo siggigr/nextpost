@@ -28,6 +28,8 @@
     <string name="mygames_delete_dialog_body">\"%1$s\" and everything in it — its posts, clues and any player sessions — will be permanently deleted. This can\'t be undone.</string>
     <string name="mygames_delete_confirm">Delete</string>
     <string name="mygames_delete_cancel">Cancel</string>
+    <string name="mygames_delete_error_permission">Couldn\'t delete that game — you may not have access to it.</string>
+    <string name="mygames_delete_error_unreachable">Couldn\'t delete that game. Check your connection and try again.</string>
 
     <!-- Create game (section 5.2) -->
     <string name="create_game_title">New game</string>
@@ -48,7 +50,15 @@
     <string name="create_validation_too_few_posts">Add at least 2 posts to create a game.</string>
     <string name="create_validation_insufficient_clues">Post %1$d needs at least 3 clues (has %2$d).</string>
     <string name="create_validation_too_many_clues">Post %1$d has %2$d clues; the limit is 10. Remove some before creating the game.</string>
-    <string name="create_publish_error">Couldn\'t publish. Check your connection and try again.</string>
+    <string name="create_publish_error_permission">Couldn\'t publish — you may not have access to this game.</string>
+    <string name="create_publish_error_unreachable">Couldn\'t publish. Check your connection and try again.</string>
+    <string name="create_save_error_permission">Couldn\'t save this post — you may not have access to this game.</string>
+    <string name="create_save_error_unreachable">Couldn\'t save this post. Check your connection and try again.</string>
+    <string name="create_delete_post_error_permission">Couldn\'t delete this post — you may not have access to this game.</string>
+    <string name="create_delete_post_error_unreachable">Couldn\'t delete this post. Check your connection and try again.</string>
+    <string name="create_naming_error_permission">Couldn\'t save the title — you may not have access to this game.</string>
+    <string name="create_naming_error_unreachable">Couldn\'t save the title. Check your connection and try again.</string>
+    <string name="create_readonly_notice">This game is published and can\'t be edited. Manage or delete it from My games.</string>
     <string name="create_select_post_hint">Tap a post on the map to edit or delete it.</string>
     <string name="create_pin_content_description">Post location, centred under the map</string>
     <string name="create_post_marker_content_description">Post %1$d</string>
@@ -65,7 +75,7 @@
     <string name="create_save">Save</string>
     <string name="create_cancel">Cancel</string>
     <string name="create_location_not_set_hint">Pan the map, then set the location to place this post.</string>
-    <string name="create_zoom_in_hint">Zoom in to at least building level before setting the location. A post placed while zoomed out can miss the 25 m arrival radius.</string>
+    <string name="create_zoom_in_hint">Zoom in to at least building level before setting the location. A post placed while zoomed out can miss the 18 m arrival radius.</string>
     <string name="create_editor_title_add">Add post</string>
     <string name="create_editor_title_edit">Edit post %1$d</string>
     <string name="create_discard_dialog_title">Discard this post?</string>
@@ -112,11 +122,14 @@
     <string name="join_finished_dialog_title">This playthrough is finished</string>
     <string name="join_finished_dialog_body">You already completed this game. Restart to play it again from the beginning.</string>
     <string name="join_finished_restart">Restart</string>
+    <string name="join_finished_restart_error_permission">Couldn\'t restart — you may not have access to this game.</string>
+    <string name="join_finished_restart_error_unreachable">Couldn\'t restart. Check your connection and try again.</string>
     <string name="join_cancel">Cancel</string>
 
     <!-- Play (section 5.3) -->
     <string name="play_post_counter">Post %1$d of %2$d</string>
     <string name="play_post_counter_start">Finding the start</string>
+    <string name="play_top_bar_with_score">%1$s · %2$s pts</string>
     <string name="play_start_marker_content_description">Start</string>
     <string name="play_no_clues_yet">Head to the marked start to begin.</string>
     <string name="play_clue_card_expand">Show earlier clues</string>
@@ -136,11 +149,21 @@
     <string name="play_arrival_continue">Continue</string>
     <string name="play_arrival_finish_done">Back to home</string>
     <string name="play_complete_title">Game complete</string>
-    <string name="play_complete_body">Thanks for playing. The full results screen is coming soon.</string>
+    <string name="play_complete_total">%1$s of %2$s points</string>
+    <string name="play_complete_elapsed">Time: %1$s</string>
+    <string name="play_complete_breakdown_title">Post %1$d</string>
+    <string name="play_complete_breakdown_detail">%1$s points — %2$d of %3$d clues opened</string>
+    <string name="play_complete_play_again">Play again</string>
     <string name="play_complete_back_home">Back to home</string>
     <string name="play_manual_miss">You are about %1$d m away.</string>
     <string name="play_manual_miss_bad_accuracy">You are about %1$d m from the target, but your GPS signal is only accurate to about %2$d m right now — move to open sky and try again.</string>
     <string name="play_gps_waiting">Waiting for a better GPS signal. Move away from buildings if you can.</string>
     <string name="play_load_error_unreachable">Couldn\'t load this game. Check your connection and try again.</string>
     <string name="play_load_error_permission">Couldn\'t load this game — you may not have access. Try rejoining with the code.</string>
+    <string name="play_arrival_error_permission">Couldn\'t record your arrival — you may not have access to this game.</string>
+    <string name="play_arrival_error_unreachable">Couldn\'t record your arrival. Check your connection and try again.</string>
+    <string name="play_reveal_clue_error_permission">Couldn\'t open that clue — you may not have access to this game.</string>
+    <string name="play_reveal_clue_error_unreachable">Couldn\'t open that clue. Check your connection and try again.</string>
+    <string name="play_restart_error_permission">Couldn\'t restart — you may not have access to this game.</string>
+    <string name="play_restart_error_unreachable">Couldn\'t restart. Check your connection and try again.</string>
 </resources>

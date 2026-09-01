@@ -18,6 +18,7 @@ import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
+import `is`.siggi.nextpost.data.model.PostResult
 import `is`.siggi.nextpost.data.model.Session
 import `is`.siggi.nextpost.data.model.SessionStatus
 import `is`.siggi.nextpost.domain.GameCodeGenerator
@@ -27,20 +28,54 @@ import kotlin.coroutines.resume
 
 data class SavePostResult(val gameId: String, val post: Post)
 
-/** M5's play-screen load: the game (for [Game.scoredPostCount], to know when play ends), the
- * player's own session, and whichever post they're currently hunting for. */
-data class PlayState(val game: Game, val session: Session, val target: Post)
+/**
+ * M6's completion breakdown for one scored post: [PostResult]'s stored [PostResult.score] and
+ * [PostResult.cluesOpened] (the free clue plus however many extras), alongside [totalClues] from
+ * the post itself, which the session doesn't carry.
+ */
+data class PostScoreBreakdown(
+    val postIndex: Int,
+    val cluesOpened: Int,
+    val totalClues: Int,
+    val score: Double
+)
+
+/**
+ * Section 5.3's "Game complete" screen. [maxPossibleScore] is `scoredPostCount * 100` per
+ * section 4. [elapsedMillis] is recorded for display only — section 6/4 are explicit that time
+ * never affects score.
+ */
+data class GameCompletionSummary(
+    val totalScore: Double,
+    val maxPossibleScore: Double,
+    val elapsedMillis: Long,
+    val breakdown: List<PostScoreBreakdown>
+)
+
+/**
+ * M5's play-screen load: the game (for [Game.scoredPostCount], to know when play ends), the
+ * player's own session, and — for [Active] — whichever post they're currently hunting for.
+ * [Completed] is what a resumed-after-finishing load lands on instead (AC-7's resume applies to
+ * a finished game too): there is no target post past the end of the route to load, so this
+ * carries the completion summary in its place.
+ */
+sealed interface PlayState {
+    data class Active(val game: Game, val session: Session, val target: Post) : PlayState
+    data class Completed(val session: Session, val summary: GameCompletionSummary) : PlayState
+}
 
 /**
  * Section 5.3's arrival outcome, from [GameRepository.recordArrival]. [nextTarget] is null only
- * when [gameFinished] is true — there is no post past the last scored one to load.
+ * when [gameFinished] is true — there is no post past the last scored one to load. [completionSummary]
+ * is non-null exactly when [gameFinished] is true.
  */
 data class ArrivalResult(
     val session: Session,
     val nextTarget: Post?,
     val awardedScore: Double,
     val isStartPost: Boolean,
-    val gameFinished: Boolean
+    val gameFinished: Boolean,
+    val completionSummary: GameCompletionSummary? = null
 )
 
 /** section 5.3's join outcomes, one per distinct message the join screen must show. */
@@ -391,8 +426,61 @@ class GameRepository(
         val uid = awaitUid()
         val game = gamesCollection().document(gameId).get().awaitResult().toGame()
         val session = sessionsCollection(gameId).document(uid).get().awaitResult().toSession()
+        if (session.status == SessionStatus.FINISHED) {
+            // finishedAt is resolved by now (it was written via serverTimestamp() when the game
+            // finished and this is always a fresh read), unlike the in-memory value recordArrival
+            // returns at the moment of finishing — see buildCompletionSummary's other call site.
+            val elapsedMillis = ((session.finishedAt ?: System.currentTimeMillis()) - (session.startedAt ?: 0L))
+                .coerceAtLeast(0L)
+            return PlayState.Completed(session, buildCompletionSummary(gameId, game, session, elapsedMillis))
+        }
         val target = loadPostByIndex(gameId, session.currentPostIndex, session.cluesOpenedForCurrentPost)
-        return PlayState(game, session, target)
+        return PlayState.Active(game, session, target)
+    }
+
+    /**
+     * Shared by [loadPlayState]'s resume path and [recordArrival]'s just-finished path. `score`
+     * and `cluesOpened` both come straight from [Session.postScores] — [recordArrival] writes
+     * both at arrival time, so there's nothing to derive here. Posts are still fetched, for
+     * `clueCount` (the "of N clues" half of the breakdown), which the session doesn't carry.
+     *
+     * `whereLessThanOrEqualTo("index", session.currentPostIndex)`, not a plain get() — the same
+     * reason as [loadPostByIndex]'s doc: `canPlayerReadPost`'s rule is per-document
+     * (`resource.data.index <= session.currentPostIndex`), so Firestore can only prove an
+     * unfiltered list query safe for the game owner (whose rule branch is constant across every
+     * document), not for a player. The filter is what makes it provable here — by the time a
+     * session is finished, `currentPostIndex` has advanced past every real post index, so this
+     * still returns the whole route without the query being rejected outright.
+     */
+    private suspend fun buildCompletionSummary(
+        gameId: String,
+        game: Game,
+        session: Session,
+        elapsedMillis: Long
+    ): GameCompletionSummary {
+        val postDocs = postsCollection(gameId)
+            .whereLessThanOrEqualTo("index", session.currentPostIndex)
+            .get()
+            .awaitResult()
+        val breakdown = postDocs.documents
+            .map { it.toPost(emptyList()) }
+            .filter { it.index >= 1 }
+            .sortedBy { it.index }
+            .map { post ->
+                val result = session.postScores[post.index.toString()] ?: PostResult()
+                PostScoreBreakdown(
+                    postIndex = post.index,
+                    cluesOpened = result.cluesOpened,
+                    totalClues = post.clueCount,
+                    score = result.score
+                )
+            }
+        return GameCompletionSummary(
+            totalScore = session.totalScore,
+            maxPossibleScore = game.scoredPostCount * ScoreCalculator.MAX_POINTS,
+            elapsedMillis = elapsedMillis,
+            breakdown = breakdown
+        )
     }
 
     /**
@@ -431,6 +519,11 @@ class GameRepository(
     suspend fun recordArrival(gameId: String, game: Game, session: Session, target: Post): ArrivalResult {
         val uid = awaitUid()
         val isStartPost = target.index == 0
+        // The free clue plus whatever extras were open when this post was reached — captured
+        // now because it's not derivable later: inverting the score against the floor is
+        // ambiguous once more than one clue count can land on the same floored score, which the
+        // 10-clue cap only happens to avoid today. See section 3's model notes.
+        val cluesOpened = session.cluesOpenedForCurrentPost + 1
         val awardedScore = if (isStartPost) {
             0.0
         } else {
@@ -444,7 +537,10 @@ class GameRepository(
             "cluesOpenedForCurrentPost" to 0
         )
         if (!isStartPost) {
-            updates["postScores.${target.index}"] = awardedScore
+            updates["postScores.${target.index}"] = mapOf(
+                "score" to awardedScore,
+                "cluesOpened" to cluesOpened
+            )
             updates["totalScore"] = session.totalScore + awardedScore
         }
         if (gameFinished) {
@@ -459,7 +555,7 @@ class GameRepository(
             postScores = if (isStartPost) {
                 session.postScores
             } else {
-                session.postScores + (target.index.toString() to awardedScore)
+                session.postScores + (target.index.toString() to PostResult(awardedScore, cluesOpened))
             },
             totalScore = if (isStartPost) session.totalScore else session.totalScore + awardedScore,
             status = if (gameFinished) SessionStatus.FINISHED else session.status
@@ -468,12 +564,24 @@ class GameRepository(
         // "cluesOpenedForCurrentPost" to 0 write above, which this mirrors.
         val nextTarget = if (gameFinished) null else loadPostByIndex(gameId, nextIndex, maxClueIndex = 0)
 
+        // finishedAt above is a serverTimestamp() write, unresolved locally until the next fresh
+        // read (see loadPlayState's resume path) — client time is close enough for a completion
+        // screen shown seconds after this call, and elapsed time never affects score anyway.
+        val completionSummary = if (gameFinished) {
+            val elapsedMillis = (System.currentTimeMillis() - (session.startedAt ?: System.currentTimeMillis()))
+                .coerceAtLeast(0L)
+            buildCompletionSummary(gameId, game, updatedSession, elapsedMillis)
+        } else {
+            null
+        }
+
         return ArrivalResult(
             session = updatedSession,
             nextTarget = nextTarget,
             awardedScore = awardedScore,
             isStartPost = isStartPost,
-            gameFinished = gameFinished
+            gameFinished = gameFinished,
+            completionSummary = completionSummary
         )
     }
 
@@ -483,7 +591,7 @@ class GameRepository(
         "status" to SessionStatus.ACTIVE.wireValue,
         "currentPostIndex" to 0,
         "cluesOpenedForCurrentPost" to 0,
-        "postScores" to emptyMap<String, Double>(),
+        "postScores" to emptyMap<String, PostResult>(),
         "totalScore" to 0.0,
         "startedAt" to FieldValue.serverTimestamp(),
         "finishedAt" to null

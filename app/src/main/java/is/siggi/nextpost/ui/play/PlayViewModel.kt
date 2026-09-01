@@ -3,8 +3,12 @@ package `is`.siggi.nextpost.ui.play
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.model.Session
+import `is`.siggi.nextpost.data.repository.GameCompletionSummary
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.data.repository.PlayState
 import `is`.siggi.nextpost.domain.ProximityChecker
+import `is`.siggi.nextpost.ui.common.WriteError
+import `is`.siggi.nextpost.ui.common.toWriteError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -65,7 +69,18 @@ data class PlayUiState(
     val isRevealingClue: Boolean = false,
     /** One-shot, like [is.siggi.nextpost.ui.join.JoinGameUiState.joinedGameId]: shown once, then dismissed. */
     val arrivalOutcome: ArrivalOutcome? = null,
-    val isGameComplete: Boolean = false
+    val isGameComplete: Boolean = false,
+    /** Populated whenever [isGameComplete] is set — either from finishing just now, or from a resume that finds the session already finished. */
+    val completionSummary: GameCompletionSummary? = null,
+    val isRestartingGame: Boolean = false,
+    /** A denied or dropped [is.siggi.nextpost.data.repository.GameRepository.recordArrival]
+     * write must say so — arriving at a post and having nothing happen, with no explanation, is
+     * worse than the write just failing loudly. */
+    val arrivalError: WriteError? = null,
+    /** Same reasoning for [is.siggi.nextpost.data.repository.GameRepository.openNextClue]. */
+    val revealClueError: WriteError? = null,
+    /** Same reasoning for [is.siggi.nextpost.data.repository.GameRepository.restartSession]. */
+    val playAgainError: WriteError? = null
 ) {
     /** Section 5.3/AC-9: hidden, not merely disabled, until there's something to hint at. */
     val showClueCard: Boolean get() = (target?.clueCount ?: 0) > 0
@@ -96,14 +111,27 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
         _uiState.update { it.copy(isLoading = true, loadError = null) }
         viewModelScope.launch {
             try {
-                val state = repository.loadPlayState(gameId)
-                _uiState.update {
-                    it.copy(
-                        isLoading = false,
-                        game = state.game,
-                        session = state.session,
-                        target = state.target
-                    )
+                when (val state = repository.loadPlayState(gameId)) {
+                    is PlayState.Active -> _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            game = state.game,
+                            session = state.session,
+                            target = state.target
+                        )
+                    }
+                    // AC-7's resume applies to a finished game too: reopening after finishing
+                    // (with or without having dismissed the outcome dialog first) must land
+                    // straight on the completion screen, not attempt to load a target post past
+                    // the end of the route.
+                    is PlayState.Completed -> _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            session = state.session,
+                            isGameComplete = true,
+                            completionSummary = state.summary
+                        )
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -196,7 +224,7 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
         val session = state.session ?: return
         val target = state.target ?: return
 
-        _uiState.update { it.copy(isCheckingArrival = true) }
+        _uiState.update { it.copy(isCheckingArrival = true, arrivalError = null) }
         viewModelScope.launch {
             try {
                 val result = repository.recordArrival(gameId, game, session, target)
@@ -210,13 +238,17 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
                         isCheckingArrival = false,
                         session = result.session,
                         target = result.nextTarget ?: it.target,
-                        arrivalOutcome = outcome
+                        arrivalOutcome = outcome,
+                        completionSummary = result.completionSummary ?: it.completionSummary
                     )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isCheckingArrival = false) }
+                // A failed arrival write must say so — the player is standing on the post,
+                // nothing happens, and silence here reads as a broken game, not a retriable
+                // network hiccup.
+                _uiState.update { it.copy(isCheckingArrival = false, arrivalError = e.toWriteError()) }
             }
         }
     }
@@ -229,12 +261,40 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
         }
     }
 
+    /**
+     * Section 5.3's "play again" from the completion screen: the same restart primitive the
+     * join screen offers after "session already finished," reusing this session's own name
+     * rather than whatever the finished session happened to hold, per [GameRepository.restartSession]'s
+     * doc. Resets local state and re-runs [load] rather than patching fields in place, since a
+     * restarted session is a fresh [PlayState.Active] in every respect.
+     */
+    fun playAgain() {
+        val state = _uiState.value
+        val session = state.session ?: return
+        if (state.isRestartingGame) return
+
+        _uiState.update { it.copy(isRestartingGame = true, playAgainError = null) }
+        viewModelScope.launch {
+            try {
+                repository.restartSession(gameId, session.displayName)
+                lastKnownLocation = null
+                loadedGameId = null
+                _uiState.value = PlayUiState()
+                load(gameId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isRestartingGame = false, playAgainError = e.toWriteError()) }
+            }
+        }
+    }
+
     fun requestOpenNextClue() {
         _uiState.update { it.copy(showClueConfirmation = true) }
     }
 
     fun dismissClueConfirmation() {
-        _uiState.update { it.copy(showClueConfirmation = false) }
+        _uiState.update { it.copy(showClueConfirmation = false, revealClueError = null) }
     }
 
     fun confirmOpenNextClue() {
@@ -243,7 +303,7 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
         val session = state.session ?: return
         if (state.isRevealingClue) return
 
-        _uiState.update { it.copy(isRevealingClue = true) }
+        _uiState.update { it.copy(isRevealingClue = true, revealClueError = null) }
         viewModelScope.launch {
             try {
                 val clues = repository.openNextClue(gameId, target.id, session.cluesOpenedForCurrentPost)
@@ -258,7 +318,9 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isRevealingClue = false) }
+                // The confirmation dialog already named the point cost before this ran — if the
+                // write then fails, that cost must not appear to have been charged silently.
+                _uiState.update { it.copy(isRevealingClue = false, revealClueError = e.toWriteError()) }
             }
         }
     }

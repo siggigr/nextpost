@@ -24,4 +24,30 @@ object GameCodeGenerator {
      */
     fun normalize(input: String): String =
         input.uppercase().filterNot { it.isWhitespace() }
+
+    /**
+     * Section 7 paste handling: a share-sheet message carries more than the code (e.g. "Join
+     * my Nextpost game! Code: RZ2SBL"), so pasting the whole line shouldn't just take its
+     * first six characters. This slides a window over the uppercased input, resetting at any
+     * character outside [ALPHABET] — the excluded I, O, 0, 1 mean ordinary words tend to break
+     * themselves apart before they can look like a code. The rightmost run of exactly
+     * [CODE_LENGTH] alphabet characters wins, since the code is what comes last in the
+     * message; if no such run exists, this falls back to whatever alphabet characters are
+     * present.
+     */
+    fun extractCode(input: String): String {
+        val upper = input.uppercase()
+        var lastCandidate: String? = null
+        val window = StringBuilder()
+        for (char in upper) {
+            if (char in ALPHABET) {
+                window.append(char)
+                if (window.length > CODE_LENGTH) window.deleteCharAt(0)
+                if (window.length == CODE_LENGTH) lastCandidate = window.toString()
+            } else {
+                window.clear()
+            }
+        }
+        return lastCandidate ?: upper.filter { it in ALPHABET }.take(CODE_LENGTH)
+    }
 }

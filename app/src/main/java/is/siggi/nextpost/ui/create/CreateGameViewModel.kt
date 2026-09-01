@@ -1,9 +1,12 @@
 package `is`.siggi.nextpost.ui.create
 
 import `is`.siggi.nextpost.data.model.Clue
+import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.repository.GameRepository
 import `is`.siggi.nextpost.domain.ClueValidator
+import `is`.siggi.nextpost.ui.common.WriteError
+import `is`.siggi.nextpost.ui.common.toWriteError
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
@@ -67,13 +70,25 @@ data class CreateGameUiState(
     val titleInput: String = "",
     val posts: List<Post> = emptyList(),
     val mode: CreateScreenMode = CreateScreenMode.Naming,
+    /** Always DRAFT for a game not yet loaded from Firestore — a brand-new draft is never published. */
+    val gameStatus: GameStatus = GameStatus.DRAFT,
+    /** Empty until loaded; a published game's code, for the read-only overview's share sheet — the
+     * only way to retrieve it once the one-time post-publish confirmation screen is gone. */
+    val gameCode: String = "",
     val selectedPostIndex: Int? = null,
     val isLoadingDraft: Boolean = false,
     val isSaving: Boolean = false,
     val isCreatingDraft: Boolean = false,
     val isPublishing: Boolean = false,
     /** Section 7: "then surfacing an error" — covers retry exhaustion and any other failure. */
-    val publishError: Boolean = false,
+    val publishError: WriteError? = null,
+    /** A post Save that fails must say so, not just silently drop the creator's work. */
+    val saveError: WriteError? = null,
+    /** A post delete that fails must say so — and see [CreateGameViewModel.deleteSelectedPost]
+     * for why the optimistic local removal is reverted alongside this, not just reported. */
+    val deletePostError: WriteError? = null,
+    /** Naming/renaming a draft is a write too (createDraftGame/renameDraftGame) and can fail. */
+    val namingError: WriteError? = null,
     /**
      * Trimmed, lower-cased titles of this creator's *other* games (this draft's own current
      * title excluded), fetched once for the duplicate-title warning in section 5.2. A warning
@@ -137,6 +152,8 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
                         gameId = game.id,
                         titleInput = game.title,
                         posts = posts,
+                        gameStatus = game.status,
+                        gameCode = game.code,
                         isLoadingDraft = false,
                         mode = if (game.title.isBlank()) CreateScreenMode.Naming else CreateScreenMode.Overview
                     )
@@ -193,7 +210,7 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
         val trimmed = state.titleInput.trim()
         if (trimmed.isEmpty() || trimmed.length > MAX_GAME_TITLE_LENGTH || state.isCreatingDraft) return
 
-        _uiState.update { it.copy(isCreatingDraft = true) }
+        _uiState.update { it.copy(isCreatingDraft = true, namingError = null) }
         viewModelScope.launch {
             try {
                 val resolvedGameId = state.gameId
@@ -216,7 +233,7 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isCreatingDraft = false) }
+                _uiState.update { it.copy(isCreatingDraft = false, namingError = e.toWriteError()) }
             }
         }
     }
@@ -313,7 +330,7 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
         }
         val scoredPostCountAfterSave = (postCountAfterSave - 1).coerceAtLeast(0)
 
-        _uiState.update { it.copy(isSaving = true) }
+        _uiState.update { it.copy(isSaving = true, saveError = null) }
         viewModelScope.launch {
             try {
                 val result = repository.saveDraftPost(
@@ -339,8 +356,10 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // TODO(M7): surface a retry-able error state instead of silently dropping this.
-                _uiState.update { it.copy(isSaving = false) }
+                // A denied write here (e.g. this game was published from another device between
+                // opening it and tapping Save) must say so, not discard the creator's post and
+                // clues with no explanation — see PostEditorControls' saveError text.
+                _uiState.update { it.copy(isSaving = false, saveError = e.toWriteError()) }
             }
         }
     }
@@ -357,7 +376,7 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
         val gameId = state.gameId ?: return
         if (state.validation !is CreateGameValidation.Valid || state.isPublishing) return
 
-        _uiState.update { it.copy(isPublishing = true, publishError = false) }
+        _uiState.update { it.copy(isPublishing = true, publishError = null) }
         viewModelScope.launch {
             try {
                 val published = repository.publishGame(gameId)
@@ -369,9 +388,10 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
             } catch (e: Exception) {
                 // Section 7: retries-exhausted and any other failure (permission denial,
                 // network) all land here and must actually be visible — a silent reset here
-                // is exactly how a broken publish path went undetected before. See
-                // OverviewControls' publishError text.
-                _uiState.update { it.copy(isPublishing = false, publishError = true) }
+                // is exactly how a broken publish path went undetected before. Classified via
+                // toWriteError() rather than a flat message, so a permission denial doesn't
+                // read as "check your connection" — see OverviewControls' publishError text.
+                _uiState.update { it.copy(isPublishing = false, publishError = e.toWriteError()) }
             }
         }
     }
@@ -380,25 +400,34 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
      * Updates local state immediately, unlike save above: deleting carries no risk of
      * creating a duplicate document, so there's no reason to make the creator wait for the
      * round trip. The Firestore delete is queued durably in the background regardless.
+     *
+     * The optimistic removal is reverted on failure, not left in place: a denied delete (e.g.
+     * this game was published from another device moments ago) previously left the post gone
+     * from the screen forever while the document survived in Firestore — silently wrong local
+     * state, worse than just failing loudly. Restoring [previousPosts] keeps the two in sync
+     * and re-selects the post so the creator can see what failed and retry.
      */
     fun deleteSelectedPost() {
         val state = _uiState.value
         val index = state.selectedPostIndex ?: return
         val gameId = state.gameId ?: return
         val target = state.posts.find { it.index == index } ?: return
+        val previousPosts = state.posts
         val remaining = state.posts
             .filter { it.index != index }
             .sortedBy { it.index }
             .mapIndexed { newIndex, post -> post.copy(index = newIndex) }
 
-        _uiState.update { it.copy(posts = remaining, selectedPostIndex = null) }
+        _uiState.update { it.copy(posts = remaining, selectedPostIndex = null, deletePostError = null) }
         viewModelScope.launch {
             try {
                 repository.deleteDraftPost(gameId, target.id, remaining)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // TODO(M7): surface a retry-able error state instead of silently dropping this.
+                _uiState.update {
+                    it.copy(posts = previousPosts, selectedPostIndex = index, deletePostError = e.toWriteError())
+                }
             }
         }
     }
