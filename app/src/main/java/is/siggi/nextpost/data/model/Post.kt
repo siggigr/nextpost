@@ -1,5 +1,7 @@
 package `is`.siggi.nextpost.data.model
 
+import `is`.siggi.nextpost.domain.ProximityChecker
+
 /**
  * Index 0 is the start post: no clues lead to it, and it is never a scored post.
  * [id] is the Firestore document id, empty until the post has been persisted.
@@ -22,6 +24,6 @@ data class Post(
     val clueCount: Int = clues.size
 ) {
     companion object {
-        const val DEFAULT_RADIUS_METERS = 25
+        const val DEFAULT_RADIUS_METERS = ProximityChecker.DEFAULT_ARRIVAL_RADIUS_METERS
     }
 }

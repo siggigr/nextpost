@@ -21,6 +21,9 @@ class ProximityCheckerTest {
         assertEquals(111_194.9, distance, 1.0)
     }
 
+    private val radiusMeters = ProximityChecker.DEFAULT_ARRIVAL_RADIUS_METERS.toDouble()
+    private val maxAccuracyMeters = ProximityChecker.MAX_ACCEPTABLE_ACCURACY_METERS
+
     @Test
     fun `checkArrival registers arrival within radius with a good fix`() {
         val result = ProximityChecker.checkArrival(
@@ -29,7 +32,7 @@ class ProximityCheckerTest {
             currentAccuracyMeters = 10.0,
             targetLat = 64.1466,
             targetLng = -21.9426,
-            radiusMeters = 25.0
+            radiusMeters = radiusMeters
         )
         assertTrue(result.hasArrived)
         assertFalse(result.accuracyRejected)
@@ -44,7 +47,7 @@ class ProximityCheckerTest {
             currentAccuracyMeters = 10.0,
             targetLat = 64.1566, // roughly 1.1 km north
             targetLng = -21.9426,
-            radiusMeters = 25.0
+            radiusMeters = radiusMeters
         )
         assertFalse(result.hasArrived)
         assertFalse(result.accuracyRejected)
@@ -65,14 +68,16 @@ class ProximityCheckerTest {
     }
 
     @Test
-    fun `checkArrival rejects a fix worse than 50m accuracy even inside the radius`() {
+    fun `checkArrival rejects a fix worse than the accuracy gate even inside the radius`() {
+        // AC-6: the equivalent of the old 25 m within / 80 m accuracy case at the new 18 m
+        // radius — 40 m is comfortably worse than the ~27 m gate the radius now derives.
         val result = ProximityChecker.checkArrival(
             currentLat = 64.1466,
             currentLng = -21.9426,
-            currentAccuracyMeters = 80.0,
+            currentAccuracyMeters = 40.0,
             targetLat = 64.1466,
             targetLng = -21.9426,
-            radiusMeters = 25.0
+            radiusMeters = radiusMeters
         )
         assertFalse(result.hasArrived)
         assertTrue(result.accuracyRejected)
@@ -81,28 +86,28 @@ class ProximityCheckerTest {
     }
 
     @Test
-    fun `checkArrival accepts a fix at exactly 50m accuracy`() {
+    fun `checkArrival accepts a fix at exactly the accuracy gate`() {
         val result = ProximityChecker.checkArrival(
             currentLat = 64.1466,
             currentLng = -21.9426,
-            currentAccuracyMeters = 50.0,
+            currentAccuracyMeters = maxAccuracyMeters,
             targetLat = 64.1466,
             targetLng = -21.9426,
-            radiusMeters = 25.0
+            radiusMeters = radiusMeters
         )
         assertTrue(result.hasArrived)
         assertFalse(result.accuracyRejected)
     }
 
     @Test
-    fun `checkArrival just above 50m accuracy is rejected`() {
+    fun `checkArrival just above the accuracy gate is rejected`() {
         val result = ProximityChecker.checkArrival(
             currentLat = 64.1466,
             currentLng = -21.9426,
-            currentAccuracyMeters = 50.001,
+            currentAccuracyMeters = maxAccuracyMeters + 0.001,
             targetLat = 64.1466,
             targetLng = -21.9426,
-            radiusMeters = 25.0
+            radiusMeters = radiusMeters
         )
         assertFalse(result.hasArrived)
         assertTrue(result.accuracyRejected)

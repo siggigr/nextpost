@@ -245,9 +245,9 @@ No centre crosshair is drawn. The pin marks the map centre whenever it is unset,
 
 Note the label names the *location*, not the post. The button fixes a coordinate; it does not create or number anything. Avoid "next post" in creator-facing copy entirely: that phrase belongs to the player, who is hunting for a post they cannot see, and reusing it here muddies a term doing real work elsewhere.
 
-**Placement accuracy.** The arrival radius is 25 m, so a post misplaced by 40 m sends players to the wrong bench. At low zoom a fingertip covers far more ground than 25 m, and nothing currently tells the creator that. Two supports:
+**Placement accuracy.** The arrival radius is 18 m, so a post misplaced by 30 m sends players to the wrong bench. At low zoom a fingertip covers far more ground than 18 m, and nothing currently tells the creator that. Two supports:
 
-- **Draw the 25 m radius as a scaled circle around the pin**, so it shrinks and grows with zoom. This makes the precision requirement visible rather than something the creator must imagine, and the same overlay is reusable on the play screen at M5.
+- **Draw the 18 m radius as a scaled circle around the pin**, so it shrinks and grows with zoom. This makes the precision requirement visible rather than something the creator must imagine, and the same overlay is reusable on the play screen at M5.
 - **Require a minimum zoom before Set is available**, around level 17 (roughly building level), or warn if the creator sets a location while zoomed far out.
 
 Pinch-to-zoom gestures stay enabled throughout. Only the +/- control buttons are disabled, per 14.1, because they render bottom-right where the primary action lives.
@@ -313,7 +313,9 @@ Because the name will eventually be visible to the game creator and to other pla
 - `ACCESS_COARSE_LOCATION` is not sufficient. If the user grants coarse only, block play with a clear message.
 - Background location is **not** required. The game is played with the app open. Do not request it, it triggers a Play Store review process for no benefit.
 - Keep the screen on during play (`FLAG_KEEP_SCREEN_ON` or Compose equivalent) and handle the app being backgrounded gracefully by pausing location updates.
-- Arrival check: use `Location.distanceTo` (great-circle, metres). Default radius 25 m. Reject location fixes with `accuracy > 50 m` rather than triggering a false arrival, and surface a "waiting for a better GPS fix" state.
+- Arrival check: use `Location.distanceTo` (great-circle, metres). Default radius 18 m, reduced from 25 m after outdoor testing showed 25 m triggered arrival while the player was still visibly short of the post. Reject location fixes with `accuracy > 27 m` (1.5× the radius) rather than triggering a false arrival, and surface a "waiting for a better GPS fix" state.
+- **The accuracy gate is tied to the radius, not independent of it.** A fix reporting 12 m to target with 30 m accuracy carries no information: the true position could be anywhere in a circle far larger than the target. The gate was 50 m when the radius was 25 m; at 18 m it must tighten in step, or bad fixes that happen to land inside the circle will register as arrivals. Keep it at roughly 1.5× the radius, and treat it as a derived value so changing one adjusts the other.
+- **The manual fallback cannot bypass the accuracy gate.** "I think I'm here" runs the same check, so under a poor fix it will keep refusing. That is correct — a player should not be able to claim a post from anywhere by tapping through bad GPS — but it means the failure message must be useful. Show the measured distance and the current accuracy, so the player understands whether they are in the wrong place or the signal is poor.
 - Battery: request updates at `PRIORITY_HIGH_ACCURACY` with a 5 second interval only while the play screen is in the foreground.
 
 ---
@@ -406,7 +408,7 @@ Given post 2 has 3 clues, when the player opens both extra clues and reaches pos
 Given a player is hunting for post 3, when they inspect the map, then no marker exists for post 3 or any later post.
 
 **AC-6 Arrival requires a good fix**
-Given the player is within 25 m of the target but the location accuracy is 80 m, when the arrival check runs, then arrival is not registered and the app shows a waiting-for-signal state.
+Given the player is within 18 m of the target but the location accuracy is 80 m, when the arrival check runs, then arrival is not registered and the app shows a waiting-for-signal state.
 
 **AC-7 Resume**
 Given a player has completed 2 of 5 posts and opened 1 extra clue for post 3, when the app is killed and reopened, then play resumes at post 3 with that clue still revealed and the score unchanged.
@@ -415,7 +417,7 @@ Given a player has completed 2 of 5 posts and opened 1 extra clue for post 3, wh
 Given a player has just joined a game and is 400 m from the start post, when they open the play screen, then the start post is marked on the map, no clue text is shown, and the Show next clue button is not available.
 
 **AC-10 Start post awards nothing**
-Given a player walks into the 25 m radius of the start post, when arrival registers, then the running total remains 0, the free clue for post 1 appears, and the start post marker is removed from the map.
+Given a player walks into the 18 m radius of the start post, when arrival registers, then the running total remains 0, the free clue for post 1 appears, and the start post marker is removed from the map.
 
 **AC-11 Name is required to join**
 Given a player enters a valid code but leaves the name field empty or types only spaces, when they tap Join game, then joining is blocked and the name field shows the reason.
@@ -436,7 +438,7 @@ Given a post has three clue fields and one contains only whitespace, when the cr
 Given a post has three valid clues, when the creator views the clue editor, then a Done button is the primary action in the bottom third and Add clue is secondary.
 
 **AC-17 The arrival radius is visible during placement**
-Given a creator is placing a post, when the pin is shown, then a 25 m radius circle is drawn to scale around it and resizes with zoom.
+Given a creator is placing a post, when the pin is shown, then an 18 m radius circle is drawn to scale around it and resizes with zoom.
 
 **AC-18 A game must be named**
 Given a creator selects Create new game, when the title prompt appears, then the map is not reachable until a non-empty title is entered, and that title appears in My games.
@@ -466,7 +468,7 @@ Given a player enters a code that does not exist, when they submit, then an erro
 These are set to defaults in this document. Confirm or change them.
 
 1. **Route order.** Assumed strictly linear, posts must be found in sequence. Alternative: free order, find any remaining post. Linear is simpler and matches the clue-chain design.
-2. **Arrival radius.** *(Confirmed: 25 m.)* Fixed per game, stored as `defaultRadiusMeters` on the game and copied to each post at creation so it can become per-post configurable later without a migration. Urban GPS in Reykjavík is usually good to 5–10 m; 25 m gives headroom without making posts trivially findable.
+2. **Arrival radius.** *(Provisional: 18 m, revised from 25 m after outdoor testing. Needs more field testing in poor sky-view conditions.)* Fixed per game, stored as `defaultRadiusMeters` on the game and copied to each post at creation so it can become per-post configurable later without a migration. Urban GPS in Reykjavík is usually good to 5–10 m. 25 m was the original estimate and proved too generous in the field: arrival registered while the player was still clearly short of the post, which drains the moment of finding it. Note that existing games carry 25 m in their stored data and are unaffected by the constant changing; only new posts pick up the new default.
 3. **Auth.** Assumed anonymous sign-in with no account creation, with the player supplying a free-text name when joining, as specified in section 5.3. Adding real accounts later is an upgrade path on the same anonymous UID, not a rewrite, and a verified account name would then replace the free-text one.
 4. **Multiple players per game.** The model supports many sessions per game, but v1 shows no leaderboard, each player only sees their own score. Confirm this is acceptable for the first release.
 5. **Photo clues.** Out of scope for v1. Adding them later means Firebase Storage plus a `imageUrl` field on the clue document.

@@ -13,8 +13,21 @@ import kotlin.math.sqrt
 object ProximityChecker {
     private const val EARTH_RADIUS_METERS = 6_371_000.0
 
-    /** Fixes worse than this are rejected rather than trusted for arrival, per section 6. */
-    const val MAX_ACCEPTABLE_ACCURACY_METERS = 50.0
+    /**
+     * Single source of truth for the arrival radius, per section 12. Only new games/posts pick
+     * up a change here — existing ones keep whatever radius is already in their stored data, so
+     * this is safe to retune after further field testing without a migration.
+     */
+    const val DEFAULT_ARRIVAL_RADIUS_METERS = 18
+
+    /**
+     * Fixes worse than this are rejected rather than trusted for arrival, per section 6. Derived
+     * from [DEFAULT_ARRIVAL_RADIUS_METERS] rather than an independent constant so the two can't
+     * drift apart if the radius changes again: a fix reporting a short distance to target with
+     * much worse accuracy carries no information, since the true position could be anywhere in a
+     * circle far larger than the target.
+     */
+    val MAX_ACCEPTABLE_ACCURACY_METERS: Double = DEFAULT_ARRIVAL_RADIUS_METERS * 1.5
 
     data class ArrivalCheck(
         val hasArrived: Boolean,

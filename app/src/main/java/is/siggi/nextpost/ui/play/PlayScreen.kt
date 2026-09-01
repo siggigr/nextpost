@@ -271,12 +271,19 @@ private fun PlayingContent(
 
         ClueCard(uiState = uiState, onShowNextClue = viewModel::requestOpenNextClue)
 
-        if (uiState.manualMissDistanceMeters != null) {
+        if (uiState.manualMiss != null) {
+            val miss = uiState.manualMiss
+            val message = if (miss.wasAccuracyRejected) {
+                stringResource(
+                    R.string.play_manual_miss_bad_accuracy,
+                    miss.distanceMeters.roundToInt(),
+                    miss.accuracyMeters.roundToInt()
+                )
+            } else {
+                stringResource(R.string.play_manual_miss, miss.distanceMeters.roundToInt())
+            }
             Text(
-                text = stringResource(
-                    R.string.play_manual_miss,
-                    uiState.manualMissDistanceMeters.roundToInt()
-                ),
+                text = message,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,

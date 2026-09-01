@@ -88,7 +88,7 @@ private val REYKJAVIK = LatLng(64.1466, -21.9426)
 
 /**
  * Roughly building level. Below this, a fingertip on screen covers more ground than the
- * 25 m arrival radius, so a placement can look precise while actually being off by tens of
+ * 18 m arrival radius, so a placement can look precise while actually being off by tens of
  * metres. See section 5.2.
  */
 private const val MIN_ZOOM_FOR_SET = 17f
@@ -422,7 +422,7 @@ private fun CreateGameContent(
                     PendingPostMarker(lat = mode.lat, lng = mode.lng, index = mode.targetIndex)
                 }
 
-                // Makes the 25 m arrival radius visible while placing a post rather than
+                // Makes the 18 m arrival radius visible while placing a post rather than
                 // something the creator has to imagine. Reused as-is on the M5 play screen.
                 if (mode is CreateScreenMode.PostEditor) {
                     val circleCenter = if (mode.locationConfirmed) {

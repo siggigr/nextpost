@@ -36,6 +36,18 @@ sealed interface PlayLoadError {
     data object Unreachable : PlayLoadError
 }
 
+/**
+ * Feedback for a failed manual "I think I'm here" tap. [accuracyMeters] is always the fix's
+ * current accuracy so the message can tell the player which problem they have — wrong place
+ * ([wasAccuracyRejected] false) or bad signal ([wasAccuracyRejected] true) — rather than just
+ * refusing silently.
+ */
+data class ManualArrivalMiss(
+    val distanceMeters: Double,
+    val accuracyMeters: Double,
+    val wasAccuracyRejected: Boolean
+)
+
 data class PlayUiState(
     val isLoading: Boolean = true,
     val loadError: PlayLoadError? = null,
@@ -48,7 +60,7 @@ data class PlayUiState(
     val isWaitingForGoodFix: Boolean = true,
     val isCheckingArrival: Boolean = false,
     /** Transient: only set by a failed manual "I think I'm here" tap, per section 5.3. */
-    val manualMissDistanceMeters: Double? = null,
+    val manualMiss: ManualArrivalMiss? = null,
     val showClueConfirmation: Boolean = false,
     val isRevealingClue: Boolean = false,
     /** One-shot, like [is.siggi.nextpost.ui.join.JoinGameUiState.joinedGameId]: shown once, then dismissed. */
@@ -143,16 +155,38 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
             targetLng = target.lng,
             radiusMeters = target.radiusMeters.toDouble()
         )
-        // AC-6: a poor fix never registers arrival, however close the raw distance looks. The
-        // waiting-for-signal state (isWaitingForGoodFix, set in onLocationUpdate) is what
-        // surfaces this — there's nothing further to show here even on a manual tap.
-        if (check.accuracyRejected) return
+        // AC-6: a poor fix never registers arrival, however close the raw distance looks. On an
+        // automatic check that's the end of it — isWaitingForGoodFix (set in onLocationUpdate)
+        // already covers that state. A manual tap gets more: since the same gate correctly keeps
+        // refusing, the message needs to say why, distinguishing "wrong place" from "bad signal".
+        if (check.accuracyRejected) {
+            if (showMissDistanceOnFailure) {
+                _uiState.update {
+                    it.copy(
+                        manualMiss = ManualArrivalMiss(
+                            distanceMeters = check.distanceMeters,
+                            accuracyMeters = fix.accuracyMeters,
+                            wasAccuracyRejected = true
+                        )
+                    )
+                }
+            }
+            return
+        }
 
         if (check.hasArrived) {
-            _uiState.update { it.copy(manualMissDistanceMeters = null) }
+            _uiState.update { it.copy(manualMiss = null) }
             processArrival()
         } else if (showMissDistanceOnFailure) {
-            _uiState.update { it.copy(manualMissDistanceMeters = check.distanceMeters) }
+            _uiState.update {
+                it.copy(
+                    manualMiss = ManualArrivalMiss(
+                        distanceMeters = check.distanceMeters,
+                        accuracyMeters = fix.accuracyMeters,
+                        wasAccuracyRejected = false
+                    )
+                )
+            }
         }
     }
 

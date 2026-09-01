@@ -139,6 +139,7 @@
     <string name="play_complete_body">Thanks for playing. The full results screen is coming soon.</string>
     <string name="play_complete_back_home">Back to home</string>
     <string name="play_manual_miss">You are about %1$d m away.</string>
+    <string name="play_manual_miss_bad_accuracy">You are about %1$d m from the target, but your GPS signal is only accurate to about %2$d m right now — move to open sky and try again.</string>
     <string name="play_gps_waiting">Waiting for a better GPS signal. Move away from buildings if you can.</string>
     <string name="play_load_error_unreachable">Couldn\'t load this game. Check your connection and try again.</string>
     <string name="play_load_error_permission">Couldn\'t load this game — you may not have access. Try rejoining with the code.</string>
