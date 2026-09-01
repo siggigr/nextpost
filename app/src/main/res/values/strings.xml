@@ -113,6 +113,33 @@
     <string name="join_finished_dialog_body">You already completed this game. Restart to play it again from the beginning.</string>
     <string name="join_finished_restart">Restart</string>
     <string name="join_cancel">Cancel</string>
-    <!-- Temporary until M5 adds the play screen to navigate to; see NextpostNavHost's onJoined. -->
-    <string name="join_success_toast">Joined! The play screen isn\'t built yet, so you\'re back at Home.</string>
+
+    <!-- Play (section 5.3) -->
+    <string name="play_post_counter">Post %1$d of %2$d</string>
+    <string name="play_post_counter_start">Finding the start</string>
+    <string name="play_start_marker_content_description">Start</string>
+    <string name="play_no_clues_yet">Head to the marked start to begin.</string>
+    <string name="play_clue_card_expand">Show earlier clues</string>
+    <string name="play_clue_card_collapse">Show latest clue only</string>
+    <string name="play_show_next_clue">Show next clue</string>
+    <string name="play_i_think_im_here">I think I\'m here</string>
+    <string name="play_open_clue_confirm_title">Open this clue?</string>
+    <string name="play_open_clue_confirm_body">Open clue %1$d of %2$d? This post drops to %3$s points.</string>
+    <string name="play_open_clue_confirm_confirm">Open clue</string>
+    <string name="play_open_clue_confirm_cancel">Cancel</string>
+    <string name="play_arrival_start_title">You\'re at the start</string>
+    <string name="play_arrival_start_body">Here is your first clue.</string>
+    <string name="play_arrival_scored_title">Post %1$d found!</string>
+    <string name="play_arrival_scored_body">This post scored %1$s points.</string>
+    <string name="play_arrival_finished_title">Game complete!</string>
+    <string name="play_arrival_finished_body">Post %1$d scored %2$s points. You\'ve found every post.</string>
+    <string name="play_arrival_continue">Continue</string>
+    <string name="play_arrival_finish_done">Back to home</string>
+    <string name="play_complete_title">Game complete</string>
+    <string name="play_complete_body">Thanks for playing. The full results screen is coming soon.</string>
+    <string name="play_complete_back_home">Back to home</string>
+    <string name="play_manual_miss">You are about %1$d m away.</string>
+    <string name="play_gps_waiting">Waiting for a better GPS signal. Move away from buildings if you can.</string>
+    <string name="play_load_error_unreachable">Couldn\'t load this game. Check your connection and try again.</string>
+    <string name="play_load_error_permission">Couldn\'t load this game — you may not have access. Try rejoining with the code.</string>
 </resources>

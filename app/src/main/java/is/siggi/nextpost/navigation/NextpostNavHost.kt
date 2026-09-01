@@ -24,6 +24,8 @@ import `is`.siggi.nextpost.ui.join.JoinGameScreen
 import `is`.siggi.nextpost.ui.join.JoinGameViewModel
 import `is`.siggi.nextpost.ui.mygames.MyGamesScreen
 import `is`.siggi.nextpost.ui.mygames.MyGamesViewModel
+import `is`.siggi.nextpost.ui.play.PlayScreen
+import `is`.siggi.nextpost.ui.play.PlayViewModel
 
 @Composable
 fun NextpostNavHost(
@@ -53,11 +55,29 @@ fun NextpostNavHost(
             JoinGameScreen(
                 viewModel = viewModel,
                 onNavigateUp = { navController.popBackStack() },
-                // M5 will replace this with navigating to the play screen; for now, joining
-                // returns to Home (matching M4's scope — section 10: "join screen resolves a
-                // code and creates a session," not "…and starts play"), with a toast in
-                // JoinGameScreen confirming the join happened.
-                onJoined = { navController.popBackStack() }
+                // M5: joining now hands off to the play screen. Join is popped off the back
+                // stack in the same step, so leaving Play returns straight to Home rather than
+                // back to an already-completed join form.
+                onJoined = { gameId ->
+                    navController.navigate(NextpostDestinations.playRoute(gameId)) {
+                        popUpTo(NextpostDestinations.JOIN) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        composable(
+            NextpostDestinations.PLAY_PATTERN,
+            arguments = listOf(navArgument(NextpostDestinations.GAME_ID_ARG) { type = NavType.StringType })
+        ) { backStackEntry ->
+            val gameId = backStackEntry.arguments?.getString(NextpostDestinations.GAME_ID_ARG).orEmpty()
+            val viewModel: PlayViewModel = viewModel(
+                factory = viewModelFactory { initializer { PlayViewModel(GameRepository()) } }
+            )
+            PlayScreen(
+                viewModel = viewModel,
+                gameId = gameId,
+                onExit = { navController.popBackStack() }
             )
         }
 

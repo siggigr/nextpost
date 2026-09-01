@@ -52,7 +52,9 @@ internal fun DocumentSnapshot.toPost(clues: List<Clue>): Post = Post(
     lat = getDouble("lat") ?: 0.0,
     lng = getDouble("lng") ?: 0.0,
     radiusMeters = (getLong("radiusMeters") ?: Post.DEFAULT_RADIUS_METERS.toLong()).toInt(),
-    clues = clues
+    clues = clues,
+    // Read from the stored field rather than trusting clues.size — see Post.clueCount's doc.
+    clueCount = (getLong("clueCount") ?: clues.size.toLong()).toInt()
 )
 
 internal fun Clue.toFieldMap(): Map<String, Any?> = mapOf(

@@ -26,11 +26,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
-import android.widget.Toast
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.ui.theme.Spacing
 
@@ -54,16 +52,9 @@ fun JoinGameScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
-    val joinSuccessMessage = stringResource(R.string.join_success_toast)
 
-    // Temporary confirmation until M5 gives a successful join somewhere to navigate to —
-    // without it, a successful join and a failed one both just land back on Home.
     LaunchedEffect(uiState.joinedGameId) {
-        uiState.joinedGameId?.let { gameId ->
-            Toast.makeText(context, joinSuccessMessage, Toast.LENGTH_SHORT).show()
-            onJoined(gameId)
-        }
+        uiState.joinedGameId?.let(onJoined)
     }
 
     Scaffold(

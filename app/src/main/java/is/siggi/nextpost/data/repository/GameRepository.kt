@@ -14,15 +14,34 @@ import `is`.siggi.nextpost.data.firebase.toFieldMap
 import `is`.siggi.nextpost.data.firebase.toGame
 import `is`.siggi.nextpost.data.firebase.toPost
 import `is`.siggi.nextpost.data.firebase.toSession
+import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
+import `is`.siggi.nextpost.data.model.Session
 import `is`.siggi.nextpost.data.model.SessionStatus
 import `is`.siggi.nextpost.domain.GameCodeGenerator
+import `is`.siggi.nextpost.domain.ScoreCalculator
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
 data class SavePostResult(val gameId: String, val post: Post)
+
+/** M5's play-screen load: the game (for [Game.scoredPostCount], to know when play ends), the
+ * player's own session, and whichever post they're currently hunting for. */
+data class PlayState(val game: Game, val session: Session, val target: Post)
+
+/**
+ * Section 5.3's arrival outcome, from [GameRepository.recordArrival]. [nextTarget] is null only
+ * when [gameFinished] is true — there is no post past the last scored one to load.
+ */
+data class ArrivalResult(
+    val session: Session,
+    val nextTarget: Post?,
+    val awardedScore: Double,
+    val isStartPost: Boolean,
+    val gameFinished: Boolean
+)
 
 /** section 5.3's join outcomes, one per distinct message the join screen must show. */
 sealed interface JoinOutcome {
@@ -40,8 +59,9 @@ private class GameCodeCollisionException : Exception()
 
 /**
  * Owns all Firestore access for games/posts/clues/sessions, per section 2's architecture: the
- * ViewModel calls this, never Firebase directly. Publish and join are M4 scope; the play loop
- * that writes session progress (currentPostIndex, cluesOpenedForCurrentPost, scores) is M5.
+ * ViewModel calls this, never Firebase directly. Publish and join are M4 scope; [loadPlayState],
+ * [openNextClue] and [recordArrival] are the M5 play loop that writes session progress
+ * (currentPostIndex, cluesOpenedForCurrentPost, scores).
  */
 class GameRepository(
     private val firestore: FirebaseFirestore = Firebase.firestore,
@@ -331,6 +351,130 @@ class GameRepository(
     suspend fun restartSession(gameId: String, displayName: String) {
         val uid = awaitUid()
         sessionsCollection(gameId).document(uid).set(newSessionFields(uid, displayName)).awaitResult()
+    }
+
+    /**
+     * The post the player is currently hunting for, identified by [index] rather than a
+     * document id the caller doesn't have yet. The posts query's own `whereEqualTo("index", ...)`
+     * mirrors `canPlayerReadPost`'s `postIndex <= session.currentPostIndex` closely enough
+     * (we only ever ask for the current target, i.e. `index == currentPostIndex`) that
+     * Firestore can prove the query safe. The clue subcollection read needs the same
+     * treatment, and more literally: `canPlayerReadClue`'s rule is genuinely per-document
+     * (`clue.index <= cluesOpenedForCurrentPost` varies clue to clue), so a plain unfiltered
+     * `.get()` here isn't just unproven, it was measured denying the whole list outright with
+     * PERMISSION_DENIED — Firestore won't silently filter a list query down to the allowed
+     * subset unless the query's own filters already guarantee every possible result would
+     * pass. `whereLessThanOrEqualTo("index", maxClueIndex)` is what makes that provable, the
+     * same way [loadDraftGame]'s unfiltered clue read gets away with no filter at all: that
+     * one is gated on `isGameOwner`, which is constant across every document in the
+     * collection, not data-dependent like this one.
+     */
+    private suspend fun loadPostByIndex(gameId: String, index: Int, maxClueIndex: Int): Post {
+        val postDocs = postsCollection(gameId).whereEqualTo("index", index).limit(1).get().awaitResult()
+        val doc = postDocs.documents.firstOrNull()
+            ?: error("No post at index $index for game $gameId")
+        val clueDocs = cluesCollection(gameId, doc.id)
+            .whereLessThanOrEqualTo("index", maxClueIndex)
+            .get()
+            .awaitResult()
+        val clues = clueDocs.documents.map { it.toClue() }.sortedBy { it.index }
+        return doc.toPost(clues)
+    }
+
+    /**
+     * M5's play-screen load, and the whole answer to AC-7's resume: this is always a fresh
+     * read from Firestore, never trusted from in-memory state, so "the app was killed and
+     * reopened" isn't a special case — it's just this method running again after a fresh join
+     * (which resumes the existing session untouched, per [joinGame]'s doc).
+     */
+    suspend fun loadPlayState(gameId: String): PlayState {
+        val uid = awaitUid()
+        val game = gamesCollection().document(gameId).get().awaitResult().toGame()
+        val session = sessionsCollection(gameId).document(uid).get().awaitResult().toSession()
+        val target = loadPostByIndex(gameId, session.currentPostIndex, session.cluesOpenedForCurrentPost)
+        return PlayState(game, session, target)
+    }
+
+    /**
+     * Section 5.3's clue reveal, after the player has already accepted the confirmation
+     * naming its cost. Writes the incremented count first, then re-reads the clue
+     * subcollection rather than appending the new clue text locally — the rules (section 8)
+     * are the actual source of truth for which clues are visible, so this keeps the client
+     * from ever displaying a clue it wasn't just handed permission to read.
+     */
+    suspend fun openNextClue(gameId: String, postId: String, currentExtraOpened: Int): List<Clue> {
+        val uid = awaitUid()
+        val newExtraOpened = currentExtraOpened + 1
+        sessionsCollection(gameId).document(uid)
+            .update("cluesOpenedForCurrentPost", newExtraOpened)
+            .awaitResult()
+        // whereLessThanOrEqualTo, not a plain get() — see loadPostByIndex's doc for why an
+        // unfiltered list query against this same per-document rule gets denied outright.
+        val clueDocs = cluesCollection(gameId, postId)
+            .whereLessThanOrEqualTo("index", newExtraOpened)
+            .get()
+            .awaitResult()
+        return clueDocs.documents.map { it.toClue() }.sortedBy { it.index }
+    }
+
+    /**
+     * Section 5.3's arrival path, shared by automatic polling and the manual "I think I'm
+     * here" fallback — both call this once [is.siggi.nextpost.domain.ProximityChecker] has
+     * already confirmed arrival; this trusts that and only writes the result.
+     *
+     * Post 0 (the start post, section 3's model notes) scores nothing and only unlocks post 1.
+     * Every other post is scored via [ScoreCalculator] and folded into
+     * [Session.postScores]/[Session.totalScore]. Reaching the last scored post
+     * (`target.index == game.scoredPostCount`) finishes the session instead of attempting to
+     * load a post past the end of the route.
+     */
+    suspend fun recordArrival(gameId: String, game: Game, session: Session, target: Post): ArrivalResult {
+        val uid = awaitUid()
+        val isStartPost = target.index == 0
+        val awardedScore = if (isStartPost) {
+            0.0
+        } else {
+            ScoreCalculator.scoreForPost(target.clueCount, session.cluesOpenedForCurrentPost)
+        }
+        val nextIndex = target.index + 1
+        val gameFinished = !isStartPost && target.index == game.scoredPostCount
+
+        val updates = mutableMapOf<String, Any?>(
+            "currentPostIndex" to nextIndex,
+            "cluesOpenedForCurrentPost" to 0
+        )
+        if (!isStartPost) {
+            updates["postScores.${target.index}"] = awardedScore
+            updates["totalScore"] = session.totalScore + awardedScore
+        }
+        if (gameFinished) {
+            updates["status"] = SessionStatus.FINISHED.wireValue
+            updates["finishedAt"] = FieldValue.serverTimestamp()
+        }
+        sessionsCollection(gameId).document(uid).update(updates).awaitResult()
+
+        val updatedSession = session.copy(
+            currentPostIndex = nextIndex,
+            cluesOpenedForCurrentPost = 0,
+            postScores = if (isStartPost) {
+                session.postScores
+            } else {
+                session.postScores + (target.index.toString() to awardedScore)
+            },
+            totalScore = if (isStartPost) session.totalScore else session.totalScore + awardedScore,
+            status = if (gameFinished) SessionStatus.FINISHED else session.status
+        )
+        // The freshly-advanced post always starts at 0 extra clues opened — see the
+        // "cluesOpenedForCurrentPost" to 0 write above, which this mirrors.
+        val nextTarget = if (gameFinished) null else loadPostByIndex(gameId, nextIndex, maxClueIndex = 0)
+
+        return ArrivalResult(
+            session = updatedSession,
+            nextTarget = nextTarget,
+            awardedScore = awardedScore,
+            isStartPost = isStartPost,
+            gameFinished = gameFinished
+        )
     }
 
     private fun newSessionFields(uid: String, displayName: String): Map<String, Any?> = mapOf(

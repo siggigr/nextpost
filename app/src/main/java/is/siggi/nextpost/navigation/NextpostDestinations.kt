@@ -17,4 +17,9 @@ object NextpostDestinations {
 
     /** [gameId] omitted starts a new draft; pass an existing id to resume one from My games. */
     fun createGraphRoute(gameId: String = NEW_GAME_ARG) = "create/$gameId"
+
+    /** M5's play loop, reached only from a successful join — see [playRoute]. */
+    const val PLAY_PATTERN = "play/{gameId}"
+
+    fun playRoute(gameId: String) = "play/$gameId"
 }
