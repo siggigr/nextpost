@@ -148,6 +148,7 @@ fun PlayScreen(
 
                 loadError != null -> PlayLoadErrorContent(
                     error = loadError,
+                    onRetry = { viewModel.load(gameId) },
                     modifier = Modifier.fillMaxSize()
                 )
 
@@ -633,9 +634,14 @@ private fun formatElapsed(millis: Long): String {
  * Section 14.5: errors state what happened, not a vague "something went wrong" — and a denied
  * read is not the same problem as a dropped connection, so it needs different words rather
  * than folding into the generic connectivity message. See [PlayLoadError]'s doc.
+ *
+ * M7 hardening: [onRetry] gives this an actual way out. A player standing in a field with no
+ * signal is exactly the person who hits [PlayLoadError.Unreachable] here, and "leave the
+ * screen and come back" was never a discoverable fix — see [PlayViewModel.load]'s doc for why
+ * this button previously would have been a silent no-op even if one had been added.
  */
 @Composable
-private fun PlayLoadErrorContent(error: PlayLoadError, modifier: Modifier = Modifier) {
+private fun PlayLoadErrorContent(error: PlayLoadError, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.padding(Spacing.lg),
         verticalArrangement = Arrangement.Center,
@@ -649,5 +655,9 @@ private fun PlayLoadErrorContent(error: PlayLoadError, modifier: Modifier = Modi
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
+        Spacer(Modifier.height(Spacing.md))
+        Button(onClick = onRetry, modifier = Modifier.heightIn(min = Spacing.minTouchTarget)) {
+            Text(stringResource(R.string.play_load_retry))
+        }
     }
 }

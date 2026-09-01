@@ -14,7 +14,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -119,6 +123,7 @@ fun MyGamesScreen(
                 )
             }
 
+            val loadError = uiState.loadError
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -126,6 +131,17 @@ fun MyGamesScreen(
             ) {
                 when {
                     uiState.isLoading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+
+                    // Checked ahead of the empty-list branch below: an empty list here can mean
+                    // either "no games yet" or "the fetch that would have found them failed" —
+                    // see MyGamesUiState.loadError's doc for why those must not read the same.
+                    // A refresh that fails with existing rows still on screen falls through to
+                    // the list branch instead, keeping the stale-but-real data visible.
+                    loadError != null && uiState.games.isEmpty() -> MyGamesLoadErrorContent(
+                        error = loadError,
+                        onRetry = viewModel::refresh,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
 
                     uiState.games.isEmpty() -> Text(
                         text = stringResource(R.string.mygames_empty),
@@ -173,6 +189,29 @@ fun MyGamesScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+/** M7 hardening: distinguishes a failed [MyGamesViewModel.refresh] from a creator who
+ * genuinely has no games yet — see [MyGamesUiState.loadError]'s doc. */
+@Composable
+private fun MyGamesLoadErrorContent(error: WriteError, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(Spacing.lg),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = when (error) {
+                WriteError.PermissionDenied -> stringResource(R.string.mygames_load_error_permission)
+                WriteError.Unreachable -> stringResource(R.string.mygames_load_error_unreachable)
+            },
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(Spacing.md))
+        Button(onClick = onRetry, modifier = Modifier.heightIn(min = Spacing.minTouchTarget)) {
+            Text(stringResource(R.string.mygames_load_retry))
         }
     }
 }

@@ -18,7 +18,12 @@ data class MyGamesUiState(
     val games: List<Game> = emptyList(),
     /** A denied or dropped delete must say so — the row reappearing via [MyGamesViewModel.refresh]
      * already signals *that* it failed, but not *why*. */
-    val deleteError: WriteError? = null
+    val deleteError: WriteError? = null,
+    /** M7 hardening: a failed [MyGamesViewModel.refresh] must not look identical to a creator
+     * who genuinely has no games yet. [games] is left untouched on failure rather than cleared
+     * — a stale list beats losing an already-loaded one to a transient refresh error — so the
+     * screen only needs to check this when [games] is also empty to tell the two states apart. */
+    val loadError: WriteError? = null
 )
 
 /**
@@ -35,14 +40,14 @@ class MyGamesViewModel(private val repository: GameRepository) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
+            _uiState.update { it.copy(isLoading = true, loadError = null) }
             try {
                 val games = repository.loadMyGames()
                 _uiState.update { it.copy(isLoading = false, games = games) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update { it.copy(isLoading = false, loadError = e.toWriteError()) }
             }
         }
     }

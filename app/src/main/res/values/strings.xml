@@ -30,6 +30,9 @@
     <string name="mygames_delete_cancel">Cancel</string>
     <string name="mygames_delete_error_permission">Couldn\'t delete that game — you may not have access to it.</string>
     <string name="mygames_delete_error_unreachable">Couldn\'t delete that game. Check your connection and try again.</string>
+    <string name="mygames_load_error_permission">Couldn\'t load your games — you may not have access.</string>
+    <string name="mygames_load_error_unreachable">Couldn\'t load your games. Check your connection and try again.</string>
+    <string name="mygames_load_retry">Retry</string>
 
     <!-- Create game (section 5.2) -->
     <string name="create_game_title">New game</string>
@@ -56,16 +59,23 @@
     <string name="create_save_error_unreachable">Couldn\'t save this post. Check your connection and try again.</string>
     <string name="create_delete_post_error_permission">Couldn\'t delete this post — you may not have access to this game.</string>
     <string name="create_delete_post_error_unreachable">Couldn\'t delete this post. Check your connection and try again.</string>
+    <string name="create_delete_post_dialog_title_start">Delete start?</string>
+    <string name="create_delete_post_dialog_title_post">Delete post %1$d?</string>
+    <string name="create_delete_post_dialog_body">This post and its clues will be permanently deleted. This can\'t be undone.</string>
+    <string name="create_delete_post_dialog_confirm">Delete</string>
+    <string name="create_delete_post_dialog_cancel">Cancel</string>
     <string name="create_naming_error_permission">Couldn\'t save the title — you may not have access to this game.</string>
     <string name="create_naming_error_unreachable">Couldn\'t save the title. Check your connection and try again.</string>
+    <string name="create_load_draft_error_permission">Couldn\'t open this game — you may not have access to it.</string>
+    <string name="create_load_draft_error_unreachable">Couldn\'t open this game. Check your connection and try again.</string>
+    <string name="create_load_draft_retry">Retry</string>
     <string name="create_readonly_notice">This game is published and can\'t be edited. Manage or delete it from My games.</string>
     <string name="create_select_post_hint">Tap a post on the map to edit or delete it.</string>
     <string name="create_pin_content_description">Post location, centred under the map</string>
     <string name="create_post_marker_content_description">Post %1$d</string>
     <string name="create_set_start_location">Set start location</string>
-    <string name="create_set_post_location">Set location for post %1$d</string>
-    <string name="create_reposition_start">Reposition start</string>
-    <string name="create_reposition_post">Reposition post %1$d</string>
+    <string name="create_set_post_location">Set location</string>
+    <string name="create_reposition">Reposition</string>
     <string name="create_recentre_content_description">Centre on my location</string>
     <string name="create_map_type_button">Map type</string>
     <string name="create_map_type_normal">Normal</string>
@@ -160,6 +170,7 @@
     <string name="play_gps_waiting">Waiting for a better GPS signal. Move away from buildings if you can.</string>
     <string name="play_load_error_unreachable">Couldn\'t load this game. Check your connection and try again.</string>
     <string name="play_load_error_permission">Couldn\'t load this game — you may not have access. Try rejoining with the code.</string>
+    <string name="play_load_retry">Retry</string>
     <string name="play_arrival_error_permission">Couldn\'t record your arrival — you may not have access to this game.</string>
     <string name="play_arrival_error_unreachable">Couldn\'t record your arrival. Check your connection and try again.</string>
     <string name="play_reveal_clue_error_permission">Couldn\'t open that clue — you may not have access to this game.</string>

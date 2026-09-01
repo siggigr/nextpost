@@ -104,33 +104,48 @@ class PlayViewModel(private val repository: GameRepository) : ViewModel() {
     private var gameId: String = ""
     private var lastKnownLocation: LocationFix? = null
 
+    /**
+     * [loadedGameId] is only set on a *successful* load, deliberately — it exists purely to
+     * make this idempotent against the LaunchedEffect(gameId) that calls it once per screen
+     * entry, not to gate retries. Setting it unconditionally up front (as this used to) turned
+     * [PlayLoadErrorContent]'s retry button into a guaranteed no-op: a failed load left
+     * [loadedGameId] pointing at this gameId forever, so calling load() again — from a retry
+     * button or otherwise — would hit the guard and return immediately without ever touching
+     * the network again. [playAgain] already resets [loadedGameId] to null itself before its
+     * own call to this, which still works exactly as before.
+     */
     fun load(gameId: String) {
         if (loadedGameId == gameId) return
-        loadedGameId = gameId
         this.gameId = gameId
         _uiState.update { it.copy(isLoading = true, loadError = null) }
         viewModelScope.launch {
             try {
                 when (val state = repository.loadPlayState(gameId)) {
-                    is PlayState.Active -> _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            game = state.game,
-                            session = state.session,
-                            target = state.target
-                        )
+                    is PlayState.Active -> {
+                        loadedGameId = gameId
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                game = state.game,
+                                session = state.session,
+                                target = state.target
+                            )
+                        }
                     }
                     // AC-7's resume applies to a finished game too: reopening after finishing
                     // (with or without having dismissed the outcome dialog first) must land
                     // straight on the completion screen, not attempt to load a target post past
                     // the end of the route.
-                    is PlayState.Completed -> _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            session = state.session,
-                            isGameComplete = true,
-                            completionSummary = state.summary
-                        )
+                    is PlayState.Completed -> {
+                        loadedGameId = gameId
+                        _uiState.update {
+                            it.copy(
+                                isLoading = false,
+                                session = state.session,
+                                isGameComplete = true,
+                                completionSummary = state.summary
+                            )
+                        }
                     }
                 }
             } catch (e: CancellationException) {

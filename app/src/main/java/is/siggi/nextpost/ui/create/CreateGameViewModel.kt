@@ -77,6 +77,11 @@ data class CreateGameUiState(
     val gameCode: String = "",
     val selectedPostIndex: Int? = null,
     val isLoadingDraft: Boolean = false,
+    /** A failed [CreateGameViewModel.loadDraft] must say so and stop, not fall through to
+     * [CreateScreenMode.Naming]'s default — a creator who then confirms a title over that
+     * silent failure would have [CreateGameViewModel.confirmTitle] create a second, orphaned
+     * draft instead of reopening the one they meant to. */
+    val loadDraftError: WriteError? = null,
     val isSaving: Boolean = false,
     val isCreatingDraft: Boolean = false,
     val isPublishing: Boolean = false,
@@ -137,13 +142,22 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
     val uiState: StateFlow<CreateGameUiState> = _uiState.asStateFlow()
 
     /**
-     * Resumes an existing draft, e.g. opened from My games. No-ops if already loaded. A draft
-     * created before naming was required can still have a blank title; route it back through
-     * Naming rather than leaving it permanently untitled with no other way to fix that.
+     * Resumes an existing draft, e.g. opened from My games. No-ops if already loaded — note
+     * that "loaded" means [CreateGameUiState.gameId] is set, which only happens on success, so
+     * a previous failure never blocks a retry here. A draft created before naming was required
+     * can still have a blank title; route it back through Naming rather than leaving it
+     * permanently untitled with no other way to fix that.
+     *
+     * A failure must show [CreateGameUiState.loadDraftError] and stop there, never fall
+     * through to [CreateScreenMode.Naming]'s default mode: that default exists for the
+     * brand-new-draft case, and this is reopening an *existing* one. Silently landing on
+     * Naming previously meant a creator who didn't notice and confirmed a title had
+     * [confirmTitle] see a null [CreateGameUiState.gameId] and create a second, orphaned draft
+     * instead of resuming this one.
      */
     fun loadDraft(gameId: String) {
         if (_uiState.value.gameId == gameId) return
-        _uiState.update { it.copy(isLoadingDraft = true) }
+        _uiState.update { it.copy(isLoadingDraft = true, loadDraftError = null) }
         viewModelScope.launch {
             try {
                 val (game, posts) = repository.loadDraftGame(gameId)
@@ -161,7 +175,7 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoadingDraft = false) }
+                _uiState.update { it.copy(isLoadingDraft = false, loadDraftError = e.toWriteError()) }
             }
         }
     }
@@ -244,9 +258,17 @@ class CreateGameViewModel(private val repository: GameRepository) : ViewModel() 
         }
     }
 
+    /**
+     * Clears any selection Add doesn't consume, unlike [beginEditSelectedPost] and
+     * [savePost]/[deleteSelectedPost]'s own paths back to Overview, where the selection either
+     * targets what's being acted on or is already cleared as part of that action. Left stale
+     * here, a previously selected post's marker would keep its selected tint through an
+     * unrelated Add — a leftover highlight pointing at nothing this flow is about.
+     */
     fun beginAddPost(initialLat: Double, initialLng: Double) {
         _uiState.update { state ->
             state.copy(
+                selectedPostIndex = null,
                 mode = CreateScreenMode.PostEditor(
                     editingIndex = null,
                     targetIndex = state.posts.size,

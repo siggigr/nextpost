@@ -2,6 +2,7 @@ package `is`.siggi.nextpost.ui.create
 
 import android.content.Intent
 import android.location.Location
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +22,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
@@ -55,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -131,8 +132,10 @@ fun CreateGameScreen(
         }
     }
 
-    // Cancel lives in the top bar rather than the bottom control cluster, specifically so
-    // it can never end up adjacent to Save. See the section 5.2 layout constraint.
+    // The one path off the post editor, named for what happens if clues have been written
+    // (see the confirmation dialog below) rather than for where it's called from — it's wired
+    // to both the row's Cancel button and, via BackHandler below, the system back gesture, so
+    // "requestCancel" describes the action regardless of trigger.
     val requestCancel: () -> Unit = {
         if (editor != null && editor.clues.isNotEmpty()) {
             showDiscardConfirm = true
@@ -140,6 +143,15 @@ fun CreateGameScreen(
             viewModel.cancelPostEditor()
         }
     }
+
+    // PostEditor is a mode within this one screen, not a separate nav destination, so without
+    // this the system back gesture would pop CreateGameScreen off the back stack entirely —
+    // skipping cancelPostEditor's return to Overview and, with it, the discard confirmation
+    // above. That became the only way this could happen once the top bar's Close icon was
+    // removed as a second, redundant path to the same requestCancel the row's Cancel button
+    // already covers (see PostEditorControls). Disabled outside PostEditor mode, where the
+    // system default (pop via onNavigateUp) is exactly right already.
+    BackHandler(enabled = editor != null) { requestCancel() }
 
     Scaffold(
         modifier = modifier,
@@ -160,14 +172,13 @@ fun CreateGameScreen(
                     // the only way off this screen. A back arrow here looked like ordinary
                     // navigation and let a reflexive tap skip the mandatory code/share step —
                     // the bug this guards against. See CreateScreenMode.Published's doc.
-                    if (editor != null) {
-                        IconButton(onClick = requestCancel) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = stringResource(R.string.create_cancel)
-                            )
-                        }
-                    } else if (uiState.mode !is CreateScreenMode.Published) {
+                    //
+                    // Also none in PostEditor mode: the row's Cancel button (PostEditorControls)
+                    // is now the one visible exit, and BackHandler above is the one path for
+                    // system back — a second top-bar control doing the same job invited the
+                    // question of whether it behaved differently, and it went unnoticed even by
+                    // the person who added it. See requestCancel's doc.
+                    if (editor == null && uiState.mode !is CreateScreenMode.Published) {
                         IconButton(onClick = onNavigateUp) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -200,6 +211,7 @@ fun CreateGameScreen(
                 .padding(innerPadding)
                 .fillMaxSize()
         ) {
+            val loadDraftError = uiState.loadDraftError
             LocationAccessGate(state = locationAccessState) {
                 when {
                     uiState.isLoadingDraft ->
@@ -209,6 +221,18 @@ fun CreateGameScreen(
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
+
+                    // Checked ahead of the mode-based branches below: a failed loadDraft never
+                    // touches uiState.mode, which is why this can't be folded into one of those
+                    // branches instead — mode is still sitting at its Naming default here, and
+                    // falling through to it is exactly the bug this guards against. See
+                    // CreateGameViewModel.loadDraft's doc. initialGameId is non-null whenever
+                    // this error can occur — loadDraft is only ever called with it.
+                    loadDraftError != null && initialGameId != null -> LoadDraftErrorContent(
+                        error = loadDraftError,
+                        onRetry = { viewModel.loadDraft(initialGameId) },
+                        modifier = Modifier.fillMaxSize()
+                    )
 
                     // Naming gates everything past it: the map isn't reachable until the
                     // game has a title. See section 5.2 and AC-18.
@@ -233,7 +257,8 @@ fun CreateGameScreen(
                     else -> CreateGameContent(
                         uiState = uiState,
                         viewModel = viewModel,
-                        onAddClue = onAddClue
+                        onAddClue = onAddClue,
+                        onCancel = requestCancel
                     )
                 }
             }
@@ -266,6 +291,36 @@ fun CreateGameScreen(
                     }
                 }
             )
+        }
+    }
+}
+
+/**
+ * M7 hardening: a failed [CreateGameViewModel.loadDraft] stops here rather than falling
+ * through to [CreateScreenMode.Naming] — see that function's doc for why the fall-through was
+ * a data-integrity bug, not just a missing message. [onRetry] just calls loadDraft again;
+ * nothing here needs its own loading spinner since [CreateGameUiState.isLoadingDraft] already
+ * takes over the whole screen the moment that retry starts.
+ */
+@Composable
+private fun LoadDraftErrorContent(error: WriteError, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(Spacing.lg),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = writeErrorText(
+                error,
+                permissionDeniedRes = R.string.create_load_draft_error_permission,
+                unreachableRes = R.string.create_load_draft_error_unreachable
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(Spacing.md))
+        Button(onClick = onRetry, modifier = Modifier.heightIn(min = Spacing.minTouchTarget)) {
+            Text(stringResource(R.string.create_load_draft_retry))
         }
     }
 }
@@ -367,6 +422,7 @@ private fun CreateGameContent(
     uiState: CreateGameUiState,
     viewModel: CreateGameViewModel,
     onAddClue: () -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -470,6 +526,23 @@ private fun CreateGameContent(
                         cameraPositionState.position.target
                     }
                     ArrivalRadiusCircle(center = circleCenter)
+                }
+
+                // Section 5.2 hardening: a merely-selected post gets the same radius circle as
+                // one actually being edited, for the same reason NumberedPostMarker's selected
+                // tint now matches PendingPostMarker's — Edit and Delete already act on this
+                // post, so what they'd act on should be as visually unambiguous as it is once
+                // Edit is actually tapped. Only in Overview: selection only drives Edit/Delete
+                // there, and it can't be set at all on a published game (see the onClick guard
+                // on NumberedPostMarker above).
+                if (mode is CreateScreenMode.Overview) {
+                    val selectedPost = uiState.posts.find { it.index == uiState.selectedPostIndex }
+                    if (selectedPost != null) {
+                        ArrivalRadiusCircle(
+                            center = LatLng(selectedPost.lat, selectedPost.lng),
+                            radiusMeters = selectedPost.radiusMeters.toDouble()
+                        )
+                    }
                 }
             }
 
@@ -595,7 +668,8 @@ private fun CreateGameContent(
                     }
                 },
                 onAddClue = onAddClue,
-                onSave = viewModel::savePost
+                onSave = viewModel::savePost,
+                onCancel = onCancel
             )
 
             // Unreachable in practice: CreateGameContent is only ever composed for Naming's
@@ -769,6 +843,13 @@ private fun NumberedPostMarker(
     MarkerComposable(
         state = markerState,
         title = stringResource(R.string.create_post_marker_content_description, post.index),
+        // MarkerComposable defaults to Offset(0.5, 1.0) — the bottom-centre anchor a
+        // pin-shaped icon wants, so its tip lands on the coordinate. PostBadge is a round
+        // disc, not a pin: anchored that way, the coordinate sits under the badge's bottom
+        // edge, and the whole badge is drawn one diameter above where the post actually is.
+        // Centring the anchor instead puts the badge itself on the coordinate. See
+        // PendingPostMarker for the same fix applied to the pin actually being placed.
+        anchor = Offset(0.5f, 0.5f),
         onClick = {
             onClick()
             true
@@ -776,15 +857,20 @@ private fun NumberedPostMarker(
     ) {
         // Primary is reserved for the current target per section 14.3, so a saved post only
         // borrows it while selected for Edit/Delete; otherwise it's the neutral secondary.
+        // The full solid primary/onPrimary pair, not the softer *Container tones — this is
+        // the same treatment PendingPostMarker gets in edit mode (see its own doc), so a
+        // selected marker reads as unambiguously as one already being edited. A subtler
+        // container-tone tint here previously left Edit and Delete enabled with no clear
+        // visual target, a real risk with Delete one tap away. See section 5.2.
         PostBadge(
             index = post.index,
             containerColor = if (selected) {
-                MaterialTheme.colorScheme.primaryContainer
+                MaterialTheme.colorScheme.primary
             } else {
                 MaterialTheme.colorScheme.secondaryContainer
             },
             contentColor = if (selected) {
-                MaterialTheme.colorScheme.onPrimaryContainer
+                MaterialTheme.colorScheme.onPrimary
             } else {
                 MaterialTheme.colorScheme.onSecondaryContainer
             }
@@ -802,7 +888,13 @@ private fun PendingPostMarker(lat: Double, lng: Double, index: Int) {
     val markerState = rememberUpdatedMarkerState(position = LatLng(lat, lng))
     MarkerComposable(
         state = markerState,
-        title = stringResource(R.string.create_post_marker_content_description, index)
+        title = stringResource(R.string.create_post_marker_content_description, index),
+        // See NumberedPostMarker's doc — same round-badge-vs-pin-default anchor mismatch,
+        // and the one that matters most: this is the marker a creator is actively aligning
+        // against the fixed centre pin while placing a post (see confirmLocation's onSet).
+        // Anchored at the default (0.5, 1.0), the badge they're eyeballing sits a full
+        // diameter above the coordinate Set actually commits.
+        anchor = Offset(0.5f, 0.5f)
     ) {
         PostBadge(
             index = index,
@@ -840,6 +932,10 @@ private fun OverviewControls(
 ) {
     val hasSelection = uiState.selectedPostIndex != null
     val hasPosts = uiState.posts.isNotEmpty()
+    // Section 5.2 hardening: Delete used to fire immediately on tap. With the marker highlight
+    // as the only confirmation of which post was targeted (now strengthened, but still no
+    // undo), naming the post here is the actual safety net against a mis-selected Delete.
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -874,7 +970,7 @@ private fun OverviewControls(
                 Text(stringResource(R.string.create_edit))
             }
             OutlinedButton(
-                onClick = onDelete,
+                onClick = { showDeleteConfirm = true },
                 enabled = hasSelection,
                 modifier = Modifier
                     .weight(1f)
@@ -946,6 +1042,36 @@ private fun OverviewControls(
             )
         }
     }
+
+    val selectedIndex = uiState.selectedPostIndex
+    if (showDeleteConfirm && selectedIndex != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = {
+                Text(
+                    if (selectedIndex == 0) {
+                        stringResource(R.string.create_delete_post_dialog_title_start)
+                    } else {
+                        stringResource(R.string.create_delete_post_dialog_title_post, selectedIndex)
+                    }
+                )
+            },
+            text = { Text(stringResource(R.string.create_delete_post_dialog_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    onDelete()
+                }) {
+                    Text(stringResource(R.string.create_delete_post_dialog_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text(stringResource(R.string.create_delete_post_dialog_cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -958,6 +1084,7 @@ private fun PostEditorControls(
     onReposition: () -> Unit,
     onAddClue: () -> Unit,
     onSave: () -> Unit,
+    onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val zoomedInEnough = currentZoom >= MIN_ZOOM_FOR_SET
@@ -981,27 +1108,48 @@ private fun PostEditorControls(
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            // Section 14.1 only requires Cancel not sit adjacent to Save, not that it stay out
+            // of this row entirely — a secondary row above a full-width Save satisfies that
+            // while keeping Cancel where it's actually seen. The top bar's close icon (see
+            // requestCancel) is the same problem the clue editor had before it gained its own
+            // bottom Done: an exit outside the thumb zone doesn't get found. That icon stays,
+            // this is a second, more discoverable way to the same place, not a replacement.
+            OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = Spacing.minTouchTarget)
+            ) {
+                Text(stringResource(R.string.create_cancel))
+            }
             // The verb stays constant and the object varies, per 14.5: the button fixes a
             // coordinate, it does not create or number anything, so it names the location
-            // rather than the post. "Set location for post N" only applies past post 0
-            // because nothing else on this screen shows which post is being placed while
-            // adding one. See section 5.2.
+            // rather than the post. See section 5.2.
             //
             // Once set, the same button becomes Reposition and its tap is the exact inverse
             // of Set (see CreateGameViewModel.beginReposition) rather than a separate mode.
             // Zoom is only required to commit a coordinate, not to re-enter placement, so
             // Reposition itself is never gated on it. See AC-20.
+            //
+            // Unqualified once confirmed ("Reposition") and unqualified before it ("Set
+            // location") — dropping the post number in both, not just Reposition: with Cancel
+            // sharing this row, a number here wraps and crowds the other two buttons the same
+            // way whichever of the two is showing. As with Reposition, this trades away the
+            // one place a post's number was visible during Add before the header catches up
+            // (it stays "Add post", unindexed, through the whole flow) — an accepted trade-off,
+            // not an oversight; revisit if it turns out to matter in practice.
+            //
+            // Start stays distinct — "Set start location" — because that's not the number
+            // being dropped, it's that the start post is genuinely a different kind of thing
+            // (section 3's model notes: no clues lead to it, it scores nothing), which "Edit
+            // post 0" in the header doesn't convey and only this label does.
             val locationLabel = if (mode.locationConfirmed) {
-                if (mode.targetIndex == 0) {
-                    stringResource(R.string.create_reposition_start)
-                } else {
-                    stringResource(R.string.create_reposition_post, mode.targetIndex)
-                }
+                stringResource(R.string.create_reposition)
             } else {
                 if (mode.targetIndex == 0) {
                     stringResource(R.string.create_set_start_location)
                 } else {
-                    stringResource(R.string.create_set_post_location, mode.targetIndex)
+                    stringResource(R.string.create_set_post_location)
                 }
             }
             OutlinedButton(
@@ -1028,10 +1176,10 @@ private fun PostEditorControls(
             }
         }
 
-        // Save is the sole bottom action. Cancel lives in the top bar instead of beside it,
-        // per the section 5.2 layout constraint: a mis-tap discarding written clues has no undo.
-        // Disabled while a save is in flight so a second tap can't race the Firestore write
-        // and create a duplicate post document.
+        // Save is the sole bottom-row action, still never sharing a row with Cancel (see the
+        // row above) — a mis-tap discarding written clues has no undo. Disabled while a save
+        // is in flight so a second tap can't race the Firestore write and create a duplicate
+        // post document.
         Button(
             onClick = onSave,
             enabled = mode.locationConfirmed && !isSaving,
