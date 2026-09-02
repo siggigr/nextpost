@@ -103,6 +103,7 @@ games/{gameId}
 
 games/{gameId}/posts/{postId}
     index: Int                      # 0 = start post, then 1, 2, 3...
+    title: String                   # optional label, e.g. "Bekkurinn við tjörnina"
     lat: Double
     lng: Double
     radiusMeters: Int
@@ -194,6 +195,10 @@ The start post scores nothing. Maximum possible game score is `scoredPostCount *
 
 ### 5.1 Home
 Two primary buttons: **Create new game** and **Play Nextpost**. Secondary link: **My games** (list of games this user created, showing code, title, post count, status).
+
+**Warn about the identity risk of anonymous auth, inside the app, not through the system.** Android's own "Clear storage" dialog belongs to the OS and cannot be intercepted, extended, or warned from within Nextpost — no app can add a line to it. What Nextpost can do is say the true thing *before* anyone reaches that screen: a short line, on Home or in a settings screen, along the lines of "Your games are tied to this device. Clearing app data or reinstalling will make them inaccessible here." Be precise rather than alarming — nothing is deleted. The Firestore data survives untouched; only the device's link to that anonymous UID is lost, permanently orphaning the creator's own access to their games and drafts from that device.
+
+This is a mitigation, not a fix. The real fix is the account-linking option already named in section 12's deferred auth decision: Firebase Anonymous Auth supports upgrading an anonymous account to a real one (email link, etc.) without losing the UID, which would let a creator restore access after a clear or reinstall. Worth revisiting once section 12's auth question is answered, at which point this warning line becomes unnecessary rather than merely mitigating.
 
 **Deleting a game from My games.** Each row carries a delete control, available for drafts and published games alike. Three things must happen together, and none of them is automatic:
 
@@ -472,7 +477,7 @@ These are set to defaults in this document. Confirm or change them.
 4. **Multiple players per game.** The model supports many sessions per game, but v1 shows no leaderboard, each player only sees their own score. Confirm this is acceptable for the first release.
 5. **Photo clues.** Out of scope for v1. Adding them later means Firebase Storage plus a `imageUrl` field on the clue document.
 6. **Time.** Elapsed time is recorded but does not affect score. A time bonus is a plausible v2 feature.
-7. **Offline.** Assumed online-only. Firestore's offline cache will cover brief signal drops, but a game in the highlands would need real offline support and cached map tiles. *Decided: no "working offline, will sync" indicator for v1.* M7's error states (`WriteError` / `PlayLoadError`, both `PermissionDenied` / `Unreachable`) are correctly scoped to a definitive failure — a rejected write or a load with no cache and no connectivity — because a plain `.get()`/`.set()` with default `Source` falls back to cache and resolves silently on a transient drop, never throwing. A separate "syncing" banner was considered and rejected: there's no reliable signal to distinguish a short blip from a genuine long outage without guessing an arbitrary threshold, and a false alarm for something that resolves in seconds is worse than saying nothing. Revisit only if real usage shows long mid-game outages are common enough to justify the screen real estate.
+7. **Offline.** Assumed online-only. Firestore's offline cache will cover brief signal drops, but a game in the highlands would need real offline support and cached map tiles.
 
 ---
 

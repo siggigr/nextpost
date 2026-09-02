@@ -1,0 +1,4 @@
+<resources>
+    <!-- Home (section 5.1) -->
+    <string name="home_device_identity_notice">Leikirnir þínir eru tengdir þessu tæki. Sé forritsgögnum eytt eða forritið sett upp aftur, verða þeir óaðgengilegir hér.</string>
+</resources>

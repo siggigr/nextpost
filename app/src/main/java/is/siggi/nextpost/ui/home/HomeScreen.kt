@@ -67,5 +67,12 @@ fun HomeScreen(
         TextButton(onClick = onMyGames) {
             Text(stringResource(R.string.home_my_games))
         }
+        Spacer(Modifier.height(Spacing.xl))
+        Text(
+            text = stringResource(R.string.home_device_identity_notice),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
     }
 }

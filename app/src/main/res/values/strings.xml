@@ -14,6 +14,7 @@
     <string name="home_create_game">Create new game</string>
     <string name="home_play">Play Nextpost</string>
     <string name="home_my_games">My games</string>
+    <string name="home_device_identity_notice">Your games are tied to this device. Clearing app data or reinstalling will make them inaccessible here.</string>
 
     <!-- My games (section 5.1) -->
     <string name="mygames_title">My games</string>
