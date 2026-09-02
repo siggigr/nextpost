@@ -72,7 +72,7 @@
     <string name="create_load_draft_error_permission">Ekki tókst að opna ratleikinn — þú hefur kannski ekki aðgang að honum.</string>
     <string name="create_load_draft_error_unreachable">Ekki tókst að opna ratleikinn. Athugaðu nettenginguna og reyndu aftur.</string>
     <string name="create_load_draft_retry">Reyna aftur</string>
-    <string name="create_readonly_notice">Þessi ratleikur hefur verið gefinn út og er ekki hægt að breyta honum. Hafðu umsjón með honum eða eyddu honum í Ratleikirnir mínir.</string>
+    <string name="create_readonly_notice">Þessi ratleikur hefur verið gefinn út og er ekki hægt að breyta honum. Til að eyða honum, farðu í Ratleikirnir mínir.</string>
     <string name="create_select_post_hint">Ýttu á póst á kortinu til að breyta honum eða eyða.</string>
     <string name="create_pin_content_description">Staðsetning pósts, miðjuð undir kortinu</string>
     <string name="create_post_marker_content_description">Póstur %1$d</string>
@@ -88,7 +88,7 @@
     <string name="create_save">Vista</string>
     <string name="create_cancel">Hætta við</string>
     <string name="create_location_not_set_hint">Færðu kortið til, veldu svo staðsetningu til að setja póstinn.</string>
-    <string name="create_zoom_in_hint">Þysjaðu inn að minnsta kosti að byggingastigi áður en þú velur staðsetningu. Póstur sem er settur á meðan þysjað er út getur misst af 18 m komuradíusnum.</string>
+    <string name="create_zoom_in_hint">Stækkaðu kortið þangað til byggingar/hús verða sýnilegar áður en staðsetning er valin. Ef póstur er settur á meðan kortið er minnkað getur hann endað utan við 18 metra mörkin sem til þarf.</string>
     <string name="create_editor_title_add">Bæta við pósti</string>
     <string name="create_editor_title_edit">Breyta pósti %1$d</string>
     <string name="create_discard_dialog_title">Henda þessum pósti?</string>
@@ -112,7 +112,7 @@
     <string name="clue_editor_delete_content_description">Eyða vísbendingu %1$d</string>
     <string name="clue_editor_move_up_content_description">Færa vísbendingu %1$d upp</string>
     <string name="clue_editor_move_down_content_description">Færa vísbendingu %1$d niður</string>
-    <string name="clue_editor_status_met">Nær lágmarkinu, 3 vísbendingum.</string>
+    <string name="clue_editor_status_met">Lágmarki náð: 3 vísbendingar.</string>
     <plurals name="clue_editor_status_below">
         <item quantity="one">Vantar %1$d vísbendingu upp í lágmarkið, 3 vísbendingar.</item>
         <item quantity="other">Vantar %1$d vísbendingar upp í lágmarkið, 3 vísbendingar.</item>
@@ -124,12 +124,12 @@
 
     <!-- Join (section 5.3) -->
     <string name="join_title">Taka þátt í ratleik</string>
-    <string name="join_name_label">Nafnið þitt</string>
+    <string name="join_name_label">Nafn spilara</string>
     <string name="join_code_label">Leikjakóði</string>
     <string name="join_button">Taka þátt</string>
     <string name="join_error_name_required">Sláðu inn nafnið þitt til að taka þátt.</string>
     <string name="join_error_code_length">Sláðu inn 6 stafa leikjakóðann.</string>
-    <string name="join_error_unknown_code">Enginn ratleikur fannst með þessum kóða. Fáðu hann staðfestan hjá þeim sem setti hann upp.</string>
+    <string name="join_error_unknown_code">Enginn ratleikur fannst með þessum kóða. Fáðu hann staðfestan hjá þeim sem bjó til ratleikinn.</string>
     <string name="join_error_game_deleted">Sá sem bjó til þennan ratleik hefur eytt honum.</string>
     <string name="join_error_generic">Ekki tókst að taka þátt. Athugaðu kóðann og reyndu aftur.</string>
     <string name="join_finished_dialog_title">Þessari umferð er lokið</string>
@@ -154,7 +154,7 @@
     <string name="play_open_clue_confirm_confirm">Opna vísbendingu</string>
     <string name="play_open_clue_confirm_cancel">Hætta við</string>
     <string name="play_arrival_start_title">Upphafsreiturinn er fundinn – nú byrjar leikurinn!</string>
-    <string name="play_arrival_start_body">Hér færðu fyrsta vísbendinguna.</string>
+    <string name="play_arrival_start_body">Hér færðu fyrstu vísbendinguna.</string>
     <string name="play_arrival_scored_title">Póstur %1$d fundinn!</string>
     <string name="play_arrival_scored_body">Þessi póstur gaf %1$s stig.</string>
     <string name="play_arrival_finished_title">Ratleik lokið!</string>

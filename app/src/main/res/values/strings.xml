@@ -70,7 +70,7 @@
     <string name="create_load_draft_error_permission">Couldn\'t open this game — you may not have access to it.</string>
     <string name="create_load_draft_error_unreachable">Couldn\'t open this game. Check your connection and try again.</string>
     <string name="create_load_draft_retry">Retry</string>
-    <string name="create_readonly_notice">This game is published and can\'t be edited. Manage or delete it from My games.</string>
+    <string name="create_readonly_notice">This game is published and can\'t be edited. To delete it, go to My games.</string>
     <string name="create_select_post_hint">Tap a post on the map to edit or delete it.</string>
     <string name="create_pin_content_description">Post location, centred under the map</string>
     <string name="create_post_marker_content_description">Post %1$d</string>
@@ -122,7 +122,7 @@
 
     <!-- Join (section 5.3) -->
     <string name="join_title">Join a game</string>
-    <string name="join_name_label">Your name</string>
+    <string name="join_name_label">Player name</string>
     <string name="join_code_label">Game code</string>
     <string name="join_button">Join game</string>
     <string name="join_error_name_required">Enter your name to join.</string>
