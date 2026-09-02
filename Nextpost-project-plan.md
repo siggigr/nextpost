@@ -472,7 +472,7 @@ These are set to defaults in this document. Confirm or change them.
 4. **Multiple players per game.** The model supports many sessions per game, but v1 shows no leaderboard, each player only sees their own score. Confirm this is acceptable for the first release.
 5. **Photo clues.** Out of scope for v1. Adding them later means Firebase Storage plus a `imageUrl` field on the clue document.
 6. **Time.** Elapsed time is recorded but does not affect score. A time bonus is a plausible v2 feature.
-7. **Offline.** Assumed online-only. Firestore's offline cache will cover brief signal drops, but a game in the highlands would need real offline support and cached map tiles.
+7. **Offline.** Assumed online-only. Firestore's offline cache will cover brief signal drops, but a game in the highlands would need real offline support and cached map tiles. *Decided: no "working offline, will sync" indicator for v1.* M7's error states (`WriteError` / `PlayLoadError`, both `PermissionDenied` / `Unreachable`) are correctly scoped to a definitive failure — a rejected write or a load with no cache and no connectivity — because a plain `.get()`/`.set()` with default `Source` falls back to cache and resolves silently on a transient drop, never throwing. A separate "syncing" banner was considered and rejected: there's no reliable signal to distinguish a short blip from a genuine long outage without guessing an arbitrary threshold, and a false alarm for something that resolves in seconds is worse than saying nothing. Revisit only if real usage shows long mid-game outages are common enough to justify the screen real estate.
 
 ---
 
