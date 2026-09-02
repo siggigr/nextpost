@@ -1,30 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Section 14.3's signature element: the varða (stone cairn) as a three-stone stack, the same
+  glyph the in-app progress indicator stacks one stone at a time per post found. Here it's shown
+  complete, mirroring how 14.3 describes the finish screen. Basalt and Mosi for the two lower
+  stones so they read as separate stones rather than one fused shape; Flagg on the capstone only,
+  keeping the accent to its one meaning. Also used unmodified as the Android 13+ monochrome layer
+  (the system extracts alpha only, ignoring these fill colours).
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
     <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+        android:fillColor="#23262B"
+        android:pathData="M31,66 L79,66 L85,72 L85,85 L79,91 L31,91 L25,85 L25,72 Z" />
+    <path
+        android:fillColor="#7C8C6F"
+        android:pathData="M39,44 L71,44 L76,49 L76,61 L71,66 L39,66 L34,61 L34,49 Z" />
+    <path
+        android:fillColor="#E8590C"
+        android:pathData="M46,26 L64,26 L68,30 L68,40 L64,44 L46,44 L42,40 L42,30 Z" />
 </vector>

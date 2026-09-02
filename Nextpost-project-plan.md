@@ -13,7 +13,7 @@
 
 So section 5 stays incomplete until M6, by design.
 
-**Status:** M0 to M3 complete and verified on device. M4 in progress. Section 12 lists decisions that still need confirming; everything else is a working default that can be changed.
+**Status:** M0 through M8 complete and verified on device — v1 feature-complete. Section 12 lists decisions that still need confirming; everything else is a working default that can be changed.
 
 ---
 
@@ -369,6 +369,7 @@ To run the arrival check on the device, the client must know the target coordina
 - Default `values/strings.xml` in English, `values-is/strings.xml` in Icelandic.
 - No hardcoded strings in composables, everything through `stringResource`.
 - Icelandic is the primary audience, so write the Icelandic strings properly rather than machine-translating: *ratleikur* (the activity itself, still the natural Icelandic word for it even though the app is no longer called that), *póstur*, *vísbending*, *stig*, *leikjakóði*.
+- These five are fixed glossary terms — the same word everywhere, never varied. "Playthrough" is deliberately not one of them: it's ordinary vocabulary, not a defined concept, so let it vary naturally by sentence shape rather than forcing one Icelandic word everywhere. Use *spilun* inside a prepositional phrase ("fyrir þessa spilun"); use *umferð* where the sentence needs a standalone noun (`join_finished_dialog_title`, "Þessari umferð er lokið"). A stored play record (a `sessions/{uid}` document, independent of what a player calls their playthrough) is *leikjarlota* — see `mygames_delete_dialog_body`.
 
 ---
 
@@ -505,7 +506,33 @@ Preserving is the safer default, since storage is free at this scale and the rev
 - **Treat names as untrusted display data.** They are unverified free text written by one player and shown to others, so the cap-and-escape rule in 5.3 stops being theoretical.
 - **One-shot reads,** per 15.2. A leaderboard is exactly the screen where a snapshot listener looks tempting and is not needed.
 
-### 13.2 Also out of scope
+### 13.2 First-launch explainer / help screen (second v2 candidate)
+
+A short first-time walkthrough, or a help screen reachable from Home, explaining what a post and a clue are and how creating versus playing works. Not in v1, and deliberately not decided in advance which shape it takes.
+
+**The reasoning for deferring:** v1 already teaches through context rather than through a manual — the rationale screens at M1, the hint text in the clue editor, the "meets the minimum" line, the empty states. That is generally the stronger design, since a help screen is where people go once contextual guidance has already failed them. Store listings solve a different problem entirely (should someone download this) from what a confused first-time user needs at the moment of confusion, so a store description does not substitute for this.
+
+**Why not build it now:** until real people who are not the developer use the app, any explainer is a guess at what confuses someone rather than a fix for an observed confusion. Ship v1, watch where a first-time creator or player actually gets stuck, and build the explainer around that. The one place worth flagging as a likely candidate even before that data exists: the blank Home screen with two buttons and no other context asks a first-time creator to already know what "post" and "clue" mean in this game, which nothing on that screen currently explains.
+
+### 13.3 AI-assisted clue suggestions (possible future idea, not scheduled)
+
+The idea: when a creator places a post, offer suggested clues based on what is actually there — a named landmark ("Hallgrímskirkja") or a place category ("hill by a lake"). This is explicitly further out than 13.1 and 13.2, closer to a v3 idea than a committed v2 feature, and is recorded here so it is not lost rather than as something planned.
+
+**Two different problems live inside this one idea, of very different difficulty.** Identifying *what is at a coordinate* is a lookup, not AI — the Places SDK (already available, since this is a Google Maps app) can return a named landmark or category for a location. That part is cheap and reliable when a landmark exists, and returns nothing useful for an unremarkable spot, which is a real limitation, not a bug to fix. Writing the actual clue *text* from that landmark name is the genuinely AI part, and a good fit for a language model in principle: the vaguest-to-dead-giveaway progression section 5.2 already requires gives a model a clear structure to fill rather than an open brief.
+
+**Two things to weigh before this goes anywhere.** It introduces a real, ongoing cost for the first time — every other v1 feature runs free on Spark per section 15.2, but LLM calls are billed per generation. And it risks the game's character: a Nextpost clue is good because a creator who actually knows the spot wrote it, and a generic AI suggestion for a famous landmark ("a tall building with a spire") is a worse clue than a lazy human one, let alone a good one. If this is ever built, AI output should be an edited-before-accepted draft, never inserted directly.
+
+**Not worth attempting before 13.1 and 13.2 are real**, and not worth attempting at all unless clue-writing tedium is a proven problem with actual users rather than the suspected one raised back at M2.
+
+### 13.4 In-app language picker (deferred, not v1)
+
+v1 ships with no in-app language override. The app follows the device's system language via Android's normal resource resolution — Icelandic system language gets the `values-is/` strings, anything else gets English. No settings screen, no picker.
+
+**Considered and deliberately dropped for now.** System-language-follows already sorts the two groups roughly correctly without building anything: people who keep their phone in Icelandic, plausibly an older or less tech-English-comfortable audience, already get Icelandic automatically. People running an English phone, often specifically because Icelandic system translations are inconsistent, are largely comfortable with an English game too. The case a picker actually solves — someone on an English phone who specifically wants Icelandic inside this one app — is real but unmeasured, and Nextpost currently has no settings surface at all, so building the picker means building a small new screen just to find out whether that person exists. Same reasoning as 15.2's decision against a speculative offline indicator: don't build UI for a need you haven't observed yet.
+
+**Revisit if real usage shows people asking for it,** at which point it is a genuinely small addition (Android 13+'s per-app language API) once there is a settings entry point to hang it from.
+
+### 13.5 Also out of scope
 
 iOS client, editing published games, photo and audio clues, live player tracking for the creator, teams, offline maps, deep-link joining, server-side arrival validation, push notifications.
 
