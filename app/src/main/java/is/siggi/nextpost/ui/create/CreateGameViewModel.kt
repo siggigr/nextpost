@@ -1,9 +1,13 @@
 package `is`.siggi.nextpost.ui.create
 
+import android.location.Location
+import com.google.maps.android.compose.MapType
 import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.data.repository.LocationRepository
+import `is`.siggi.nextpost.data.repository.MapTypePreferenceRepository
 import `is`.siggi.nextpost.domain.ClueValidator
 import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.common.toWriteError
@@ -11,8 +15,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -137,9 +143,40 @@ private fun computeValidation(posts: List<Post>): CreateGameValidation {
  * Owns create-flow state as a StateFlow, per section 2's MVVM layering. All Firestore access
  * goes through [repository]; this class never touches Firebase directly.
  */
-class CreateGameViewModel(private val repository: GameRepository) : ViewModel() {
+class CreateGameViewModel(
+    private val repository: GameRepository,
+    private val locationRepository: LocationRepository,
+    private val mapTypeRepository: MapTypePreferenceRepository
+) : ViewModel() {
     private val _uiState = MutableStateFlow(CreateGameUiState())
     val uiState: StateFlow<CreateGameUiState> = _uiState.asStateFlow()
+
+    /**
+     * The creator's persisted map layer choice. Kept out of [CreateGameUiState] deliberately:
+     * it's a device-level preference that outlives any one draft, not part of this game's
+     * create-flow state, and folding it in would mean every layer switch produced a new
+     * CreateGameUiState carrying an unrelated game.
+     */
+    val mapType: StateFlow<MapType> = mapTypeRepository.mapType()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, MapType.NORMAL)
+
+    fun setMapType(mapType: MapType) {
+        viewModelScope.launch { mapTypeRepository.setMapType(mapType) }
+    }
+
+    /**
+     * One-shot fix for the initial map camera. Returns null rather than throwing when there's
+     * no fix to be had — the map simply stays on its default centre, which is not an error
+     * state the creator needs told about (they can still pan, and the recentre control only
+     * appears once a fix exists).
+     */
+    suspend fun currentLocation(): Location? = try {
+        locationRepository.getCurrentLocation()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        null
+    }
 
     /**
      * Resumes an existing draft, e.g. opened from My games. No-ops if already loaded — note

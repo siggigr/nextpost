@@ -69,10 +69,13 @@ fun MyGamesScreen(
     // section 5.1 and 14.1.
     var pendingDelete by remember { mutableStateOf<Game?>(null) }
 
-    // This screen loads once (MyGamesViewModel.init), but its data goes stale the moment the
-    // creator leaves to publish or edit a game and comes back — a status still reading "draft"
-    // right after publishing is the most visible case. Re-check on resume rather than only on
-    // first composition, the same fix as the M1 location permission gate (LocationAccess.kt).
+    // The sole trigger for loading this screen, initial load included: a lifecycle that has
+    // already reached RESUMED replays up to that state for a newly added observer, so this fires
+    // once on first composition and again on every return. That covers the staleness this exists
+    // for — data goes off the moment the creator leaves to publish or edit a game and comes back,
+    // a status still reading "draft" right after publishing being the most visible case — without
+    // an init-block load doubling up on the first fetch. Same shape as the M1 location permission
+    // gate (LocationAccess.kt).
     val currentRefresh by rememberUpdatedState(viewModel::refresh)
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {

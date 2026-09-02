@@ -39,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -58,7 +57,6 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.Clue
 import `is`.siggi.nextpost.data.repository.GameCompletionSummary
-import `is`.siggi.nextpost.data.repository.LocationRepository
 import `is`.siggi.nextpost.data.repository.PostScoreBreakdown
 import `is`.siggi.nextpost.domain.ScoreCalculator
 import `is`.siggi.nextpost.ui.common.ArrivalRadiusCircle
@@ -238,8 +236,6 @@ private fun PlayingContent(
     viewModel: PlayViewModel,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val locationRepository = remember { LocationRepository(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(REYKJAVIK, 16f)
@@ -248,10 +244,11 @@ private fun PlayingContent(
 
     // Section 6: live only while this screen is RESUMED. Backgrounding the app exits this
     // scope, which tears the update subscription down via LocationRepository's awaitClose;
-    // returning to the foreground starts a fresh one. See LocationRepository.locationUpdates.
-    LaunchedEffect(locationRepository) {
+    // returning to the foreground starts a fresh one. The feed itself belongs to the ViewModel
+    // (see PlayViewModel.locationUpdates); this decides only when to listen to it.
+    LaunchedEffect(viewModel) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            locationRepository.locationUpdates().collect { location ->
+            viewModel.locationUpdates().collect { location ->
                 viewModel.onLocationUpdate(location.latitude, location.longitude, location.accuracy.toDouble())
                 if (!hasCenteredOnDevice) {
                     hasCenteredOnDevice = true
@@ -372,8 +369,12 @@ private fun ClueCard(
     onShowNextClue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember { mutableStateOf(false) }
     val target = uiState.target
+    // Keyed on the post: expansion is a statement about *this* post's clue history, and
+    // arriving somewhere new starts that history over at one clue. Left unkeyed, an expanded
+    // card stayed expanded into the next post, where it showed a single clue under a Collapse
+    // button that appeared to do nothing.
+    var expanded by remember(target?.id) { mutableStateOf(false) }
 
     Surface(
         modifier = modifier.fillMaxWidth(),

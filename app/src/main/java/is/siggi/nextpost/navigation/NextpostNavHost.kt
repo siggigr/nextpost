@@ -15,6 +15,8 @@ import androidx.navigation.compose.navigation
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.data.repository.LocationRepository
+import `is`.siggi.nextpost.data.repository.MapTypePreferenceRepository
 import `is`.siggi.nextpost.data.repository.PlayerNamePreferenceRepository
 import `is`.siggi.nextpost.ui.create.ClueEditorScreen
 import `is`.siggi.nextpost.ui.create.CreateGameScreen
@@ -32,6 +34,12 @@ fun NextpostNavHost(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController()
 ) {
+    // Application context, not the composition's Activity one: these repositories are handed to
+    // ViewModels, which outlive configuration changes, so holding the Activity here would leak
+    // it on every rotation. Both DataStore-backed repositories are keyed by file name rather
+    // than by Context, so sharing one instance across the graph is also what they expect.
+    val appContext = LocalContext.current.applicationContext
+
     NavHost(
         navController = navController,
         startDestination = NextpostDestinations.HOME,
@@ -46,10 +54,9 @@ fun NextpostNavHost(
         }
 
         composable(NextpostDestinations.JOIN) {
-            val context = LocalContext.current
             val viewModel: JoinGameViewModel = viewModel(
                 factory = viewModelFactory {
-                    initializer { JoinGameViewModel(GameRepository(), PlayerNamePreferenceRepository(context)) }
+                    initializer { JoinGameViewModel(GameRepository(), PlayerNamePreferenceRepository(appContext)) }
                 }
             )
             JoinGameScreen(
@@ -72,7 +79,9 @@ fun NextpostNavHost(
         ) { backStackEntry ->
             val gameId = backStackEntry.arguments?.getString(NextpostDestinations.GAME_ID_ARG).orEmpty()
             val viewModel: PlayViewModel = viewModel(
-                factory = viewModelFactory { initializer { PlayViewModel(GameRepository()) } }
+                factory = viewModelFactory {
+                    initializer { PlayViewModel(GameRepository(), LocationRepository(appContext)) }
+                }
             )
             PlayScreen(
                 viewModel = viewModel,
@@ -107,7 +116,15 @@ fun NextpostNavHost(
                 }
                 val viewModel: CreateGameViewModel = viewModel(
                     viewModelStoreOwner = parentEntry,
-                    factory = viewModelFactory { initializer { CreateGameViewModel(GameRepository()) } }
+                    factory = viewModelFactory {
+                        initializer {
+                            CreateGameViewModel(
+                                GameRepository(),
+                                LocationRepository(appContext),
+                                MapTypePreferenceRepository(appContext)
+                            )
+                        }
+                    }
                 )
                 val gameIdArg = parentEntry.arguments?.getString(NextpostDestinations.GAME_ID_ARG)
                 val initialGameId = gameIdArg?.takeIf { it != NextpostDestinations.NEW_GAME_ARG }
@@ -129,7 +146,15 @@ fun NextpostNavHost(
                 }
                 val viewModel: CreateGameViewModel = viewModel(
                     viewModelStoreOwner = parentEntry,
-                    factory = viewModelFactory { initializer { CreateGameViewModel(GameRepository()) } }
+                    factory = viewModelFactory {
+                        initializer {
+                            CreateGameViewModel(
+                                GameRepository(),
+                                LocationRepository(appContext),
+                                MapTypePreferenceRepository(appContext)
+                            )
+                        }
+                    }
                 )
                 ClueEditorScreen(
                     viewModel = viewModel,

@@ -1,10 +1,12 @@
 package `is`.siggi.nextpost.ui.play
 
+import android.location.Location
 import `is`.siggi.nextpost.data.model.Game
 import `is`.siggi.nextpost.data.model.Post
 import `is`.siggi.nextpost.data.model.Session
 import `is`.siggi.nextpost.data.repository.GameCompletionSummary
 import `is`.siggi.nextpost.data.repository.GameRepository
+import `is`.siggi.nextpost.data.repository.LocationRepository
 import `is`.siggi.nextpost.data.repository.PlayState
 import `is`.siggi.nextpost.domain.ProximityChecker
 import `is`.siggi.nextpost.ui.common.WriteError
@@ -13,6 +15,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,13 +99,30 @@ private data class LocationFix(val lat: Double, val lng: Double, val accuracyMet
  * killed and reopened) fall out for free: rejoining the same code resumes the existing session
  * untouched (see [GameRepository.joinGame]), and this always reads that session fresh.
  */
-class PlayViewModel(private val repository: GameRepository) : ViewModel() {
+class PlayViewModel(
+    private val repository: GameRepository,
+    private val locationRepository: LocationRepository
+) : ViewModel() {
     private val _uiState = MutableStateFlow(PlayUiState())
     val uiState: StateFlow<PlayUiState> = _uiState.asStateFlow()
 
     private var loadedGameId: String? = null
     private var gameId: String = ""
     private var lastKnownLocation: LocationFix? = null
+
+    /**
+     * Section 6's polling feed, owned here rather than constructed in the composable so the
+     * screen goes through the ViewModel for its data like every other flow in the app.
+     *
+     * Deliberately handed back as a cold [Flow] for the screen to collect, instead of collected
+     * into [uiState] here: *when* to listen is a lifecycle question, not a state one, and the
+     * answer (only while the play screen is RESUMED, per section 6) is something only the
+     * composable can express — see PlayScreen's repeatOnLifecycle, which tears the subscription
+     * down via LocationRepository's awaitClose on backgrounding. Collecting it in viewModelScope
+     * would keep GPS running with the app in the background, which is exactly what section 6
+     * rules out.
+     */
+    fun locationUpdates(): Flow<Location> = locationRepository.locationUpdates()
 
     /**
      * [loadedGameId] is only set on a *successful* load, deliberately — it exists purely to

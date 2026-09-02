@@ -76,14 +76,11 @@ import com.google.maps.android.compose.rememberUpdatedMarkerState
 import `is`.siggi.nextpost.R
 import `is`.siggi.nextpost.data.model.GameStatus
 import `is`.siggi.nextpost.data.model.Post
-import `is`.siggi.nextpost.data.repository.LocationRepository
-import `is`.siggi.nextpost.data.repository.MapTypePreferenceRepository
 import `is`.siggi.nextpost.ui.common.ArrivalRadiusCircle
 import `is`.siggi.nextpost.ui.common.LocationAccessGate
 import `is`.siggi.nextpost.ui.common.WriteError
 import `is`.siggi.nextpost.ui.common.rememberLocationAccessState
 import `is`.siggi.nextpost.ui.theme.Spacing
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /** Fallback centre before the first GPS fix lands, matching the M0/M1 default. */
@@ -425,10 +422,7 @@ private fun CreateGameContent(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val locationRepository = remember { LocationRepository(context) }
-    val mapTypeRepository = remember { MapTypePreferenceRepository(context) }
-    val mapType by mapTypeRepository.mapType().collectAsState(initial = MapType.NORMAL)
+    val mapType by viewModel.mapType.collectAsState()
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(REYKJAVIK, 15f)
     }
@@ -448,19 +442,15 @@ private fun CreateGameContent(
                 17f
             )
         }
-        try {
-            val location: Location? = locationRepository.getCurrentLocation()
-            if (location != null) {
-                val target = LatLng(location.latitude, location.longitude)
-                lastKnownLocation = target
-                if (lastPostOnOpen == null) {
-                    cameraPositionState.position = CameraPosition.fromLatLngZoom(target, 17f)
-                }
+        // Null when there's no fix to be had; the map stays on its default centre. See
+        // CreateGameViewModel.currentLocation for why that isn't surfaced as an error.
+        val location: Location? = viewModel.currentLocation()
+        if (location != null) {
+            val target = LatLng(location.latitude, location.longitude)
+            lastKnownLocation = target
+            if (lastPostOnOpen == null) {
+                cameraPositionState.position = CameraPosition.fromLatLngZoom(target, 17f)
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // No fix yet; the map stays on its default centre.
         }
     }
 
@@ -588,9 +578,7 @@ private fun CreateGameContent(
             // 5.2). The play screen stays on MapType.NORMAL for now; see M5.
             MapTypeControl(
                 mapType = mapType,
-                onMapTypeChange = { newType ->
-                    coroutineScope.launch { mapTypeRepository.setMapType(newType) }
-                },
+                onMapTypeChange = viewModel::setMapType,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(Spacing.md)

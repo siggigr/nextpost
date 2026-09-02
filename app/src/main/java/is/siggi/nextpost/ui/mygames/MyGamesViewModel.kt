@@ -34,9 +34,11 @@ class MyGamesViewModel(private val repository: GameRepository) : ViewModel() {
     private val _uiState = MutableStateFlow(MyGamesUiState())
     val uiState: StateFlow<MyGamesUiState> = _uiState.asStateFlow()
 
-    init {
-        refresh()
-    }
+    // No init { refresh() }: the screen's ON_RESUME observer (MyGamesScreen) already covers the
+    // first load. Adding an observer to a lifecycle that has *already* reached RESUMED replays
+    // the events needed to bring it up to that state, so the observer fires immediately on first
+    // composition — an init block here meant two identical fetches every time the screen opened.
+    // [MyGamesUiState.isLoading] defaults to true, so the spinner covers the gap either way.
 
     fun refresh() {
         viewModelScope.launch {
