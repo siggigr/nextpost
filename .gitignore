@@ -15,3 +15,8 @@ local.properties
 .cxx
 secrets.properties
 .kotlin/
+# Release signing — the keystore itself lives OUTSIDE the repo entirely (see README);
+# these patterns are a backstop in case one is ever copied in by accident.
+keystore.properties
+*.jks
+*.keystore
